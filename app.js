@@ -10,24 +10,70 @@ const $ = (selector, root = document) => root.querySelector(selector);
 
 /**
  * 模型清单。
- * upstream 是真正发给 API 的模型名：暂时只有第一个能直连 DeepSeek 官方，
- * 其余先占位，等接入各自的网关后改 upstream 即可。
+ * id       —— 界面上显示的名字（老大认这些）
+ * upstream —— 真正发给 API 的模型名，必须和厂商文档一致
+ * baseUrl  —— 该厂商的 OpenAI 兼容网关，用户可以在设置里覆盖
+ * 空 baseUrl 表示未接网关，用户必须自己填。
  */
 const MODELS = [
-  { id: 'deepseek-V4.1-Flash', upstream: 'deepseek-chat' },
-  { id: 'Qwen-3.7-Flash', upstream: 'Qwen-3.7-Flash' },
-  { id: 'GPT-5.6 Luna', upstream: 'GPT-5.6 Luna' },
-  { id: 'GPT-6 Luna', upstream: 'GPT-6 Luna' },
-  { id: 'Grok 4.5', upstream: 'Grok 4.5' },
-  { id: 'Grok 4.7', upstream: 'Grok 4.7' },
-  { id: 'Gemini 2.5 Flash-Lite', upstream: 'Gemini 2.5 Flash-Lite' },
-  { id: 'Gemini 3.5 Flash-Lite', upstream: 'Gemini 3.5 Flash-Lite' },
-  { id: 'Claude Haiku 4.5', upstream: 'Claude Haiku 4.5' },
-  { id: 'GLM-5.3-Flash', upstream: 'GLM-5.3-Flash' },
-  { id: 'Fledge Alpha Free', upstream: 'Fledge Alpha Free' },
+  {
+    id: 'deepseek-V4.1-Flash',
+    upstream: 'deepseek-flash',
+    baseUrl: 'https://api.deepseek.com',
+  },
+  {
+    id: 'Qwen-3.7-Flash',
+    upstream: 'qwen3.7-flash',
+    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+  },
+  {
+    id: 'GPT-5.6 Luna',
+    upstream: 'gpt-5.6-luna',
+    baseUrl: 'https://api.openai.com/v1',
+  },
+  {
+    id: 'GPT-6 Luna',
+    upstream: 'gpt-6-luna',
+    baseUrl: 'https://api.openai.com/v1',
+  },
+  {
+    id: 'Grok 4.5',
+    upstream: 'grok-4-5',
+    baseUrl: 'https://api.x.ai/v1',
+  },
+  {
+    id: 'Grok 4.7',
+    upstream: 'grok-4-7',
+    baseUrl: 'https://api.x.ai/v1',
+  },
+  {
+    id: 'Gemini 2.5 Flash-Lite',
+    upstream: 'gemini-2.5-flash-lite',
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+  },
+  {
+    id: 'Gemini 3.5 Flash-Lite',
+    upstream: 'gemini-3.5-flash-lite',
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+  },
+  {
+    id: 'Claude Haiku 4.5',
+    upstream: 'claude-haiku-4-5',
+    baseUrl: 'https://api.anthropic.com/v1',
+  },
+  {
+    id: 'GLM-5.3-Flash',
+    upstream: 'glm-5.3-flash',
+    baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+  },
+  {
+    id: 'Fledge Alpha Free',
+    upstream: 'fledge-alpha-free',
+    baseUrl: '',
+  },
 ];
 
-const APP_VERSION = '0.2.0-rc.1';
+const APP_VERSION = '0.2.0-rc.2';
 
 const SUB_TITLES = {
   account: '账号',
@@ -544,8 +590,10 @@ async function reply(conv) {
     });
   };
 
+  let thinking = false;
   try {
     await streamReply(payload, conv.model, (delta) => {
+      if (thinking) thinking = false;
       text += delta;
       if (performance.now() - last > 60) {
         last = performance.now();
@@ -553,13 +601,20 @@ async function reply(conv) {
       } else {
         schedulePaint();
       }
-    }, state.abort.signal);
+    }, state.abort.signal, () => {
+      // 思考模式先出一大段 reasoning，正文要等它跑完，先给个占位，别让人以为卡了
+      if (thinking || text) return;
+      thinking = true;
+      body.innerHTML = '<div class="thinking-line">正在思考…</div>';
+      maybeScroll();
+    });
   } catch (err) {
     if (err.name !== 'AbortError') {
       if (/密码|401/.test(err.message || '')) {
         showLock();
       }
-      text = text ? `${text}\n\n> ⚠️ ${err.message}` : `⚠️ ${err.message}`;
+      const message = friendlyError(err.message);
+      text = text ? `${text}\n\n> ⚠️ ${message}` : `⚠️ ${message}`;
     }
   } finally {
     if (raf) cancelAnimationFrame(raf);
@@ -584,24 +639,27 @@ async function reply(conv) {
   }
 }
 
-async function streamReply(messages, model, onDelta, signal) {
+async function streamReply(messages, model, onDelta, signal, onReasoning) {
   const isServer = state.mode === 'server';
   const cfg = modelConfig(model);
-  const base = (cfg.baseUrl || 'https://api.deepseek.com').replace(/\/+$/, '');
+  const modelDef = MODELS.find((m) => m.id === model) || MODELS[0];
+  const base = String(cfg.baseUrl || modelDef.baseUrl || '').replace(/\/+$/, '');
+  if (!base) throw new Error('这个模型还没配 API 地址，去「设置 → 模型 → 自定义设置」里填上');
   const url = isServer ? '/api/chat' : `${base}/chat/completions`;
   const headers = { 'Content-Type': 'application/json' };
+  // 发给上游的必须是真名，显示名（deepseek-V4.1-Flash 之类）上游不认
+  const apiModel = cfg.upstream || upstreamModel(model);
   if (isServer) {
     if (state.token) headers['x-afv-session'] = state.token;
   } else {
     headers.Authorization = `Bearer ${cfg.apiKey || ''}`;
   }
 
-  const payload = { model, messages, stream: true, temperature: 1 };
-  if (cfg.upstream) payload.upstream = cfg.upstream;
+  const payload = { model: apiModel, messages, stream: true, temperature: 1 };
   if (isServer) {
     if (cfg.apiKey) payload.apiKey = cfg.apiKey;
-    if (cfg.baseUrl) payload.baseUrl = cfg.baseUrl;
-    if (cfg.upstream) payload.upstream = cfg.upstream;
+    payload.baseUrl = cfg.baseUrl || modelDef.baseUrl;
+    payload.upstream = apiModel;
   }
 
   const res = await fetch(url, {
@@ -622,10 +680,38 @@ async function streamReply(messages, model, onDelta, signal) {
     throw new Error(message);
   }
 
-  await readStream(res.body, onDelta);
+  await readStream(res.body, onDelta, onReasoning);
 }
 
-async function readStream(body, onDelta) {
+/* 上游的英文报错翻成人话，别让老大看天书 */
+function friendlyError(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return '请求失败，上游没给原因';
+  if (/supported API model names/i.test(s)) {
+    return '上游不认这个模型名。去「设置 → 模型 → 自定义设置」改「上游模型名称」，或点「测试连接」看真实名字';
+  }
+  if (/\b404\b|not found|Not Found/i.test(s)) {
+    return 'API 地址不对（404）。检查「自定义设置 → API 地址」';
+  }
+  if (/Authentication|auth header|invalid[_ ]?api[_ ]?key|invalid.*key|API key/i.test(s)) {
+    return 'API 密钥无效，重新填一次';
+  }
+  if (/insufficient|balance|quota|欠费|余额/i.test(s)) {
+    return '额度不足，去对应平台充值';
+  }
+  if (/rate limit|too many requests|\b429\b/i.test(s)) {
+    return '请求太频繁，缓一下再发';
+  }
+  if (/context length|too long|maximum context/i.test(s)) {
+    return '内容超长了，开个新对话';
+  }
+  if (/Failed to fetch|NetworkError|load failed|fetch failed|ERR_NETWORK/i.test(s)) {
+    return '连不上服务器。检查网络，或者「API 地址」填错了';
+  }
+  return s;
+}
+
+async function readStream(body, onDelta, onReasoning) {
   if (!body) throw new Error('没有收到数据流');
   const reader = body.getReader();
   const decoder = new TextDecoder();
@@ -650,8 +736,11 @@ async function readStream(body, onDelta) {
           continue;
         }
         if (json.error) throw new Error(json.error.message || '上游返回错误');
-        const delta = json.choices?.[0]?.delta?.content;
-        if (typeof delta === 'string' && delta) onDelta(delta);
+        const delta = json.choices?.[0]?.delta;
+        // 思考模式先吐 reasoning_content，正文要等它跑完
+        const reasoning = delta?.reasoning_content;
+        if (typeof reasoning === 'string' && reasoning && onReasoning) onReasoning();
+        if (typeof delta?.content === 'string' && delta.content) onDelta(delta.content);
       }
     }
   }
@@ -1142,6 +1231,62 @@ function modelLabel(id) {
   return MODELS.find((m) => m.id === id)?.id || id;
 }
 
+/**
+ * 拿当前输入框里的值真发一次请求，看上游到底收不收、回的 model 是不是它。
+ * 不写任何状态，纯探查。
+ */
+async function testModel(id, overrides = {}) {
+  const model = MODELS.find((m) => m.id === id);
+  if (!model) return { ok: false, message: '未知模型' };
+  const cfg = { ...modelConfig(id), ...overrides };
+  const base = String(cfg.baseUrl || model.baseUrl || '').replace(/\/+$/, '');
+  const upstream = cfg.upstream || model.upstream;
+  const apiKey = cfg.apiKey || '';
+  if (!base) return { ok: false, message: '还没填 API 地址（自定义设置里）' };
+  if (!apiKey) return { ok: false, message: '还没填 API 密钥' };
+
+  const started = Date.now();
+  try {
+    const res = await fetch(`${base}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: upstream,
+        messages: [{ role: 'user', content: '只回复两个字：在的' }],
+        max_tokens: 32,
+        temperature: 0,
+        stream: false,
+      }),
+    });
+    const raw = await res.text();
+    let data = null;
+    try {
+      data = JSON.parse(raw);
+    } catch {
+      /* 非 JSON */
+    }
+    const ms = Date.now() - started;
+
+    if (!res.ok) {
+      const detail = data?.error?.message || data?.message || raw.slice(0, 160) || `HTTP ${res.status}`;
+      return { ok: false, message: `${res.status} · ${friendlyError(detail)}` };
+    }
+
+    const used = data?.model || upstream;
+    const answer = String(data?.choices?.[0]?.message?.content || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 40);
+    return {
+      ok: true,
+      used,
+      message: `通了 · 上游回报 model=${used} · ${ms}ms · 回答：${answer || '(空)'}`,
+    };
+  } catch (err) {
+    return { ok: false, message: friendlyError(err.message) };
+  }
+}
+
 function syncModelLabels() {
   const id = currentModel();
   $('#sbModel').textContent = modelLabel(id);
@@ -1269,11 +1414,16 @@ const SUB_RENDERERS = {
           `<button class="model-custom-toggle" type="button">自定义设置</button>` +
           `<div class="model-custom" hidden>` +
           `<label class="sub-label">API 地址</label>` +
-          `<input class="plain-input" data-field="baseUrl" placeholder="https://api.deepseek.com" value="${escapeHtml(cfg.baseUrl || '')}" autocomplete="off" spellcheck="false" />` +
+          `<input class="plain-input" data-field="baseUrl" placeholder="${escapeHtml(model.baseUrl || '这个模型需要你自己填地址')}" value="${escapeHtml(cfg.baseUrl || '')}" autocomplete="off" spellcheck="false" />` +
           `<label class="sub-label">上游模型名称</label>` +
-          `<input class="plain-input" data-field="upstream" placeholder="默认与显示名相同" value="${escapeHtml(cfg.upstream || '')}" autocomplete="off" spellcheck="false" />` +
+          `<input class="plain-input" data-field="upstream" placeholder="${escapeHtml(model.upstream)}" value="${escapeHtml(cfg.upstream || '')}" autocomplete="off" spellcheck="false" />` +
+          `<p class="model-hint">现在会请求 ${escapeHtml(
+            String(cfg.baseUrl || model.baseUrl || '（没配地址）').replace(/\/+$/, ''),
+          )}/chat/completions，model=<b>${escapeHtml(cfg.upstream || model.upstream)}</b></p>` +
           `</div>` +
+          `<div class="model-test-out" hidden></div>` +
           `<div class="model-actions">` +
+          `<button class="btn" type="button" data-act="test">测试连接</button>` +
           `<button class="btn" type="button" data-act="cancel">取消</button>` +
           `<button class="btn primary" type="button" data-act="save">保存</button>` +
           `</div>` +
@@ -1302,6 +1452,24 @@ const SUB_RENDERERS = {
 
     body.querySelectorAll('[data-act="cancel"]').forEach((button) => {
       button.addEventListener('click', () => button.closest('.model-item').classList.remove('open'));
+    });
+
+    body.querySelectorAll('[data-act="test"]').forEach((button) => {
+      button.addEventListener('click', async () => {
+        const item = button.closest('.model-item');
+        const out = item.querySelector('.model-test-out');
+        const apiKey = item.querySelector('[data-field="apiKey"]').value.trim();
+        const baseUrl = item.querySelector('[data-field="baseUrl"]').value.trim();
+        const upstream = item.querySelector('[data-field="upstream"]').value.trim();
+        out.hidden = false;
+        out.className = 'model-test-out';
+        out.textContent = '正在请求上游…';
+        button.disabled = true;
+        const result = await testModel(item.dataset.id, { apiKey, baseUrl, upstream });
+        button.disabled = false;
+        out.className = `model-test-out ${result.ok ? 'ok' : 'fail'}`;
+        out.textContent = result.message;
+      });
     });
 
     body.querySelectorAll('[data-act="save"]').forEach((button) => {

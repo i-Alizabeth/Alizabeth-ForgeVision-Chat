@@ -1778,3 +1778,60 @@ body[data-theme="light"][data-skin="ocean"] {
   --code-bg: #eaf2f7;
   --code-head: #e0ecf3;
 }
+
+/* ============================ 模型测试 ============================ */
+
+.model-hint {
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--muted);
+  word-break: break-all;
+}
+
+.model-hint b {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.model-test-out {
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  background: var(--bg-soft);
+  color: var(--ink);
+  word-break: break-word;
+}
+
+.model-test-out.ok {
+  background: rgba(16, 179, 163, 0.1);
+  color: #0b7a6f;
+}
+
+.model-test-out.fail {
+  background: var(--red-wash);
+  color: var(--red);
+}
+
+body[data-theme="dark"] .model-test-out.ok {
+  color: #57d6c6;
+}
+
+/* 思考模式下正文还没出来时的占位 */
+.thinking-line {
+  color: var(--muted);
+  font-size: 14px;
+  letter-spacing: 0.04em;
+  animation: afv-breathe 1.6s ease-in-out infinite;
+}
+
+@keyframes afv-breathe {
+  0%,
+  100% {
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 1;
+  }
+}
