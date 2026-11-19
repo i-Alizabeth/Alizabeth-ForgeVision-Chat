@@ -1,6 +1,6 @@
 {
-  "name": "ForgeVision 推想视限",
-  "short_name": "ForgeVision",
+  "name": "A.ForgeV",
+  "short_name": "A.ForgeV",
   "description": "本地优先的 DeepSeek 对话客户端：对话存在本机，模型随意切换。",
   "lang": "zh-CN",
   "start_url": "./?source=pwa",

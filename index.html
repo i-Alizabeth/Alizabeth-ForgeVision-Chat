@@ -7,9 +7,9 @@
 <meta name="theme-color" content="#17181c" media="(prefers-color-scheme: dark)" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-<meta name="apple-mobile-web-app-title" content="ForgeVision" />
+<meta name="apple-mobile-web-app-title" content="A.ForgeV" />
 <meta name="mobile-web-app-capable" content="yes" />
-<title>ForgeVision · 推想视限</title>
+<title>A.ForgeV</title>
 <link rel="manifest" href="./manifest.webmanifest" />
 <link rel="icon" href="./icons/icon.svg" type="image/svg+xml" />
 <link rel="apple-touch-icon" href="./icons/icon-192.png" />
@@ -21,7 +21,7 @@
 <aside class="sidebar" id="sidebar" aria-label="会话列表">
   <div class="sb-head">
     <div class="sb-brand">
-      <span class="sb-logo" aria-label="AFV">AFV</span>
+      <span class="sb-brand-line" aria-label="A.ForgeV"><img class="sb-brand-mark" src="./icons/icon-512.png" alt="" /><span class="sb-brand-name">A.ForgeV</span></span>
       <span class="sb-ready" id="sbReady"><i class="dot"></i>SESSION READY</span>
     </div>
     <button class="sb-ghost" data-action="close-sidebar" aria-label="收起侧栏">
@@ -119,7 +119,7 @@
 
   <div class="composer-seat" id="composerSeat">
     <div class="composer" id="composer">
-      <textarea id="input" rows="1" placeholder="给 ForgeVision 发送消息…" enterkeyhint="send" autocomplete="off"></textarea>
+      <textarea id="input" rows="1" placeholder="给 A.ForgeV 发送消息…" enterkeyhint="send" autocomplete="off"></textarea>
       <div class="composer-tools">
         <div class="ct-left">
           <button class="tool-btn" id="attachBtn" title="附加文本文件">
@@ -213,7 +213,7 @@
         <button class="set-item" data-open="update">
           <span class="set-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><path d="M12 11v6M12 7.3h.01" /></svg></span>
           <span class="set-label">检查更新</span>
-          <i id="setVersionValue">v0.2.0-rc.5</i>
+          <i id="setVersionValue">v0.1.0-rc.1</i>
           <span class="chev">›</span>
         </button>
         <button class="set-item" id="logoutBtn">
@@ -247,8 +247,8 @@
 
   <div class="login-body">
     <div class="login-brand">
-      <span class="login-logo">AFV</span>
-      <h1 id="loginHeading">登录 ForgeVision</h1>
+      <img class="login-logo" src="./icons/icon-512.png" alt="A.ForgeV" />
+      <h1 id="loginHeading">登录 A.ForgeV</h1>
       <p id="loginSub">手机号或邮箱都可以，登录只用来区分账户，对话仍然只存在这台设备。</p>
     </div>
 
@@ -287,7 +287,7 @@
 <!-- ============================ 服务密码锁 ============================ -->
 <div class="lock" id="lock" hidden>
   <div class="lock-card">
-    <div class="lock-logo">AFV</div>
+    <img class="lock-logo" src="./icons/icon-512.png" alt="A.ForgeV" />
     <h2>推想视限</h2>
     <p>输入访问密码继续</p>
     <input id="lockInput" type="password" placeholder="访问密码" autocomplete="current-password" />

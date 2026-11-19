@@ -118,8 +118,6 @@ a { color: var(--blue-ink); }
   padding: 18px 16px 10px 18px;
 }
 
-.sb-brand { display: flex; flex-direction: column; gap: 4px; }
-
 .sb-logo {
   font-family: "Arial Black", "Segoe UI Black", Impact, var(--font-ui);
   font-weight: 900;
@@ -127,6 +125,33 @@ a { color: var(--blue-ink); }
   line-height: 0.86;
   letter-spacing: -0.045em;
   color: var(--ink);
+}
+
+.sb-brand {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.sb-brand-line {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 9px;
+}
+.sb-brand-mark {
+  flex: none;
+  display: block;
+  width: 30px;
+  height: 30px;
+}
+.sb-brand-name {
+  font-family: "Arial Black", "Segoe UI Black", Impact, var(--font-ui);
+  font-weight: 900;
+  font-size: 19px;
+  letter-spacing: -0.03em;
+  color: var(--ink);
+  white-space: nowrap;
 }
 
 .sb-ready {
@@ -1078,15 +1103,10 @@ textarea.plain-input {
 
 .login-brand { text-align: center; margin-bottom: 32px; }
 .login-logo {
-  display: inline-grid;
-  place-items: center;
-  width: 56px; height: 56px;
-  background: var(--ink);
-  color: var(--bg);
-  font-family: "Arial Black", var(--font-ui);
-  font-weight: 900;
-  font-size: 17px;
-  letter-spacing: -0.02em;
+  display: block;
+  width: 56px;
+  height: 56px;
+  object-fit: contain;
   margin-bottom: 18px;
 }
 .login-brand h1 { margin: 0 0 10px; font-size: 20px; font-weight: 600; letter-spacing: 0.01em; }
@@ -1216,12 +1236,11 @@ textarea.plain-input {
   gap: 10px;
 }
 .lock-logo {
-  font-family: "Arial Black", var(--font-ui);
-  font-weight: 900;
-  font-size: 46px;
-  letter-spacing: -0.045em;
-  line-height: 1;
-  margin-bottom: 4px;
+  display: block;
+  width: 46px;
+  height: 46px;
+  object-fit: contain;
+  margin-bottom: 8px;
 }
 .lock-card h2 { margin: 0; font-size: 16px; font-weight: 600; letter-spacing: 0.08em; }
 .lock-card p { margin: 0 0 6px; font-size: 12.5px; color: var(--muted); }

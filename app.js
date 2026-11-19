@@ -101,7 +101,7 @@ const MODELS = [
   },
 ];
 
-const APP_VERSION = '0.2.0-rc.5';
+const APP_VERSION = '0.1.0-rc.1';
 
 const SUB_TITLES = {
   account: '账号',
@@ -2284,7 +2284,7 @@ const SUB_RENDERERS = {
       `<div class="font-preview">` +
       `<div class="font-bubble">预览文字大小</div>` +
       `<p class="font-note">你可以拖动滑块来调整字体大小。</p>` +
-      `<p class="font-note">如果在使用过程中存在问题或建议，可反馈给 ForgeVision 团队。</p>` +
+      `<p class="font-note">如果在使用过程中存在问题或建议，可反馈给 A.ForgeV 团队。</p>` +
       `</div>` +
       `<div class="font-panel">` +
       `<div class="font-row"><span>跟随系统</span>` +
@@ -2381,7 +2381,7 @@ function openLogin(options = {}) {
   clearInterval(state.login.timer);
 
   $('#loginPageTitle').textContent = mode === 'bind' ? `绑定${channel === 'phone' ? '手机号' : '邮箱'}` : '登录';
-  $('#loginHeading').textContent = mode === 'bind' ? `绑定${channel === 'phone' ? '手机号' : '邮箱'}` : '登录 ForgeVision';
+  $('#loginHeading').textContent = mode === 'bind' ? `绑定${channel === 'phone' ? '手机号' : '邮箱'}` : '登录 A.ForgeV';
   $('#loginSub').textContent =
     mode === 'bind'
       ? '绑定后可以用它登录同一个账户；不绑定也不影响使用。'
