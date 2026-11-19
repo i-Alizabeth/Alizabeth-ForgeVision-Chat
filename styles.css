@@ -1318,18 +1318,13 @@ textarea.plain-input {
 }
 .menu-icon {
   flex: none;
-  width: 15px;
-  height: 15px;
-  fill: none;
-  stroke: currentColor;
-  stroke-width: 1.15;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  opacity: 0.62;
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+  display: block;
 }
-.menu--models .menu-item.is-active .menu-icon,
-.menu--models .menu-item:hover .menu-icon {
-  opacity: 1;
+body[data-theme="dark"] .menu-icon.is-mono {
+  filter: invert(1) brightness(1.05);
 }
 .menu-item em {
   font-style: normal;
@@ -1679,6 +1674,57 @@ body[data-sidebar="collapsed"] .main { inset: 0; }
   height: 16px;
   display: block;
   border: 1px solid rgba(0, 0, 0, 0.08);
+}
+
+/* 下载来的皮肤：一行一个长条，只显示名称 */
+.skin-dl-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+}
+.skin-dl-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 52px;
+  padding: 0 16px;
+  font-family: var(--font-ui);
+  font-size: 14px;
+  color: var(--ink);
+  text-align: left;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  cursor: pointer;
+}
+.skin-dl-item.is-on {
+  border-color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--ink);
+}
+.skin-dl-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.skin-dl-mark {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--line-strong);
+  background: transparent;
+}
+.skin-dl-item.is-on .skin-dl-mark {
+  border-color: var(--ink);
+  background: var(--ink);
+}
+.skin-dl-empty {
+  margin: 0;
+  padding: 16px;
+  font-size: 12.5px;
+  color: var(--muted-2);
 }
 
 .ap-link {

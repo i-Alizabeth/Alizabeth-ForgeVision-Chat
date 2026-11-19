@@ -14,91 +14,94 @@ const $ = (selector, root = document) => root.querySelector(selector);
  * label    —— 菜单上显示的名字
  * upstream —— 真正发给 API 的模型名，必须和厂商文档一致
  * baseUrl  —— 该厂商的 OpenAI 兼容网关，用户可以在设置里覆盖
- * logo     —— 16x16 线框图形，画在名字前面
+ * logo     —— 厂商官方彩色 logo（public/logos/ 下，来自 @lobehub/icons-static-svg 原图）
+ * mono     —— 这家 logo 本身就是黑白的，深色模式下要反相
  */
-const DEEPSEEK_LOGO = '<path d="M8 1.6 14.4 8 8 14.4 1.6 8Z"/><circle cx="8" cy="8" r="2.1"/>';
-
 const MODELS = [
   {
     id: 'deepseek-V4.1-Flash',
     label: 'Deep-V4.1',
     upstream: 'deepseek-flash',
     baseUrl: 'https://api.deepseek.com',
-    logo: DEEPSEEK_LOGO,
+    logo: 'logos/deepseek.svg',
   },
   {
     id: 'deepseek-v4.1-flash-free',
     label: 'Deep-V4.1.f',
     upstream: 'deepseek-v4.1-flash-free',
     baseUrl: 'https://opencode.ai/inference/openai/v1',
-    logo: DEEPSEEK_LOGO,
+    logo: 'logos/deepseek.svg',
   },
   {
     id: 'Gemini 3.5 Flash-Lite',
     label: 'Gemini-3.5-F-L',
     upstream: 'gemini-3.5-flash-lite',
     baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
-    logo: '<path d="M8 1.4 9.7 6.3 14.6 8 9.7 9.7 8 14.6 6.3 9.7 1.4 8 6.3 6.3Z"/>',
+    logo: 'logos/gemini.svg',
   },
   {
     id: 'Grok 4.5',
     label: 'Grok-4.5',
     upstream: 'grok-4-5',
     baseUrl: 'https://api.x.ai/v1',
-    logo: '<path d="M2.4 2.4 13.6 13.6M13.6 2.4 2.4 13.6"/>',
+    logo: 'logos/grok.svg',
+    mono: true,
   },
   {
     id: 'GPT-6 Luna',
     label: 'GPT-6 Luna',
     upstream: 'gpt-6-luna',
     baseUrl: 'https://api.openai.com/v1',
-    logo: '<path d="M8 1.5 13.6 4.75v6.5L8 14.5 2.4 11.25v-6.5Z"/>',
+    logo: 'logos/openai.svg',
+    mono: true,
   },
   {
     id: 'Hy4 flash',
     label: 'Hy4 flash',
     upstream: 'hy4-flash-free',
     baseUrl: 'https://opencode.ai/inference/openai/v1',
-    logo: '<path d="M9.6 1.5 3 9h4.4L6.4 14.5 13 7H8.6Z"/>',
+    logo: 'logos/hunyuan.svg',
   },
   {
     id: 'Qwen-3.7-Flash',
     label: 'Qwen-3.7-Flash',
     upstream: 'qwen3.7-flash',
     baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-    logo: '<path d="M8 2.4a5.6 5.6 0 1 0 5.6 5.6"/><path d="M8 8l4.2-4.2"/>',
+    logo: 'logos/qwen.svg',
   },
   {
     id: 'GLM-5.3-Flash',
     label: 'GLM-5.3-Flash',
     upstream: 'glm-5.3-flash',
     baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
-    logo: '<rect x="2.6" y="2.6" width="10.8" height="10.8"/><path d="M2.6 13.4 13.4 2.6"/>',
+    logo: 'logos/chatglm.svg',
   },
   {
     id: 'Claude Haiku 4.5',
     label: 'Claude Haiku 4.5',
     upstream: 'claude-haiku-4-5',
     baseUrl: 'https://api.anthropic.com/v1',
-    logo: '<path d="M8 1.6v12.8M1.6 8h12.8M3.4 3.4l9.2 9.2M12.6 3.4l-9.2 9.2"/>',
+    logo: 'logos/claude.svg',
   },
   {
     id: 'Inkling 2 Small',
     label: 'Inkling 2 Small',
     upstream: 'inkling-2-small-free',
     baseUrl: 'https://opencode.ai/inference/openai/v1',
-    logo: '<circle cx="8" cy="8" r="5.6"/><circle cx="8" cy="8" r="1.6"/>',
+    logo: 'logos/opencode.svg',
+    mono: true,
   },
   {
     id: 'Fledge Alpha Free',
     label: 'Fledge Alpha Free',
     upstream: 'fledge-alpha-free',
     baseUrl: '',
-    logo: '<path d="M8 2 14.2 13H1.8Z"/>',
+    logo: 'logos/opencode.svg',
+    mono: true,
   },
 ];
 
-const APP_VERSION = '0.2.0-rc.4';
+const APP_VERSION = '0.2.0-rc.5';
 
 const SUB_TITLES = {
   account: '账号',
@@ -167,6 +170,7 @@ const state = {
   settings: { ...DEFAULT_SETTINGS, ...LS.get('settings', {}) },
   modelConfigs: LS.get('modelConfigs', {}),
   providers: LS.get('providers', []),
+  downloadedSkins: LS.get('downloadedSkins', []),
   account: LS.get('account', null),
   convs: [],
   cache: new Map(),
@@ -1116,7 +1120,7 @@ function openMenu(anchor, items, onPick, options = {}) {
       (item) =>
         `<button class="menu-item${item.active ? ' is-active' : ''}${item.danger ? ' is-danger' : ''}" data-value="${escapeHtml(item.value)}">` +
         (item.icon
-          ? `<svg class="menu-icon" viewBox="0 0 16 16" aria-hidden="true">${item.icon}</svg>`
+          ? `<img class="menu-icon${item.mono ? ' is-mono' : ''}" src="${escapeHtml(item.icon)}" alt="" loading="lazy" />`
           : '') +
         `<span>${escapeHtml(item.label)}</span>` +
         (item.hint ? `<em>${escapeHtml(item.hint)}</em>` : '') +
@@ -1415,8 +1419,8 @@ function saveSettings() {
 
 /* ---------------- 用户自己加的提供商（仿 DSH 的添加模型提供商） ---------------- */
 
-/* 用户自己加的模型用这个通用标记 */
-const PROVIDER_LOGO = '<rect x="2.6" y="2.6" width="10.8" height="10.8"/><path d="M8 5.4v5.2M5.4 8h5.2"/>';
+/* 用户自己加的模型用这个中性标记 */
+const PROVIDER_LOGO = 'logos/custom.svg';
 
 const PROVIDER_CATALOG = [
   { id: 'deepseek', name: 'DeepSeek', baseUrl: 'https://api.deepseek.com', protocol: 'openai' },
@@ -1473,6 +1477,7 @@ function allModels() {
     id: m.id,
     label: m.label || m.id,
     logo: m.logo || '',
+    mono: Boolean(m.mono),
     group: '',
   }));
   for (const provider of providers()) {
@@ -1480,7 +1485,8 @@ function allModels() {
       list.push({
         id: providerModelKey(provider.id, model.id),
         label: model.name || model.id,
-        logo: provider.logo || PROVIDER_LOGO,
+        logo: PROVIDER_LOGO,
+        mono: true,
         group: provider.name || provider.id,
       });
     }
@@ -1613,6 +1619,7 @@ function pickModel(anchor) {
     label: m.label,
     hint: m.group,
     icon: m.logo,
+    mono: m.mono,
     active: m.id === currentModel(),
   }));
   openMenu(
@@ -2186,6 +2193,21 @@ const SUB_RENDERERS = {
   appearance(body) {
     const theme = state.settings.theme || 'light';
     const skin = state.settings.skin || 'default';
+    const downloaded = Array.isArray(state.downloadedSkins) ? state.downloadedSkins : [];
+    const dlBlock = downloaded.length
+      ? `<div class="skin-dl-list">` +
+        downloaded
+          .map(
+            (item) =>
+              `<button class="skin-dl-item${skin === item.id ? ' is-on' : ''}" data-dl-skin="${escapeHtml(item.id)}">` +
+              `<span class="skin-dl-name">${escapeHtml(item.name)}</span>` +
+              `<span class="skin-dl-mark"></span>` +
+              `</button>`,
+          )
+          .join('') +
+        `</div>`
+      : `<p class="skin-dl-empty">还没有下载过皮肤</p>`;
+
     body.innerHTML =
       `<div class="ap-top">` +
       `<button class="ap-sys${theme === 'auto' ? ' is-on' : ''}" data-ap-theme="auto">系统</button>` +
@@ -2205,6 +2227,8 @@ const SUB_RENDERERS = {
       ).join('') +
       `</div>` +
       `<div class="ap-hr"></div>` +
+      dlBlock +
+      `<div class="ap-hr"></div>` +
       `<button class="ap-link" data-open-sub="skins"><span class="set-label">下载更多皮肤</span><span class="chev">›</span></button>`;
 
     body.querySelectorAll('[data-ap-theme]').forEach((button) => {
@@ -2218,6 +2242,14 @@ const SUB_RENDERERS = {
     body.querySelectorAll('[data-skin-id]').forEach((button) => {
       button.addEventListener('click', () => {
         state.settings.skin = button.dataset.skinId;
+        saveSettings();
+        applySkin();
+        openSub('appearance');
+      });
+    });
+    body.querySelectorAll('[data-dl-skin]').forEach((button) => {
+      button.addEventListener('click', () => {
+        state.settings.skin = button.dataset.dlSkin;
         saveSettings();
         applySkin();
         openSub('appearance');
