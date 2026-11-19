@@ -70,9 +70,9 @@ const MODELS = [
     logo: 'logos/qwen.svg',
   },
   {
-    id: 'GLM-5.3-Flash',
-    label: 'GLM-5.3-Flash',
-    upstream: 'glm-5.3-flash',
+    id: 'GLM-4.7-Flash',
+    label: 'GLM-4.7-Flash',
+    upstream: 'glm-4.7-flash',
     baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
     logo: 'logos/chatglm.svg',
   },
@@ -889,6 +889,10 @@ async function readAnthropicStream(body, onDelta, onReasoning) {
 function friendlyError(raw) {
   const s = String(raw || '').trim();
   if (!s) return '请求失败，上游没给原因';
+  // 这条必须排在 API key 之前：上游说的是「key 没权限」，不是「key 不对」
+  if (/permission_error|can't call models|cannot call models|no permission|not authorized|forbidden/i.test(s)) {
+    return '密钥能通过认证，但上游说它「没有调用模型的权限」（permission_error）。去平台看这个 key 的权限范围、工作区额度，或者免费模型是不是只对客户端开放';
+  }
   if (/supported API model names/i.test(s)) {
     return '上游不认这个模型名。去「设置 → 模型 → 自定义设置」改「上游模型名称」，或点「测试连接」看真实名字';
   }
@@ -897,6 +901,12 @@ function friendlyError(raw) {
   }
   if (/Authentication|auth header|invalid[_ ]?api[_ ]?key|invalid.*key|API key/i.test(s)) {
     return 'API 密钥无效，重新填一次';
+  }
+  if (/Free usage limit reached|free models work in OpenCode/i.test(s)) {
+    return '这个免费模型只能在 OpenCode 客户端里用，第三方接口的免费额度用完就停了。要在这里用就换付费模型，或者直接用厂商官方的密钥';
+  }
+  if (/Insufficient balance|payment required|\b402\b/i.test(s)) {
+    return '账户余额不足（402）。去平台充值；如果只是日常对话，直接用 DeepSeek 官方密钥更便宜';
   }
   if (/insufficient|balance|quota|欠费|余额/i.test(s)) {
     return '额度不足，去对应平台充值';
