@@ -891,16 +891,42 @@ function showLock() {
 /* 版本检查                                                            */
 /* ================================================================== */
 
+/* 版本号：主版本按数字比，-rc.1 这类预发布标记算「更小」 */
+function parseVersion(value) {
+  const raw = String(value || '').replace(/^v/i, '').trim();
+  const dash = raw.indexOf('-');
+  const core = dash >= 0 ? raw.slice(0, dash) : raw;
+  const pre = dash >= 0 ? raw.slice(dash + 1) : '';
+  const nums = core.split('.').map((part) => Number.parseInt(part, 10) || 0);
+  while (nums.length < 3) nums.push(0);
+  return { nums, pre };
+}
+
 function compareVersion(a, b) {
-  const pa = String(a).split('.').map((part) => Number.parseInt(part, 10) || 0);
-  const pb = String(b).split('.').map((part) => Number.parseInt(part, 10) || 0);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i += 1) {
-    const x = pa[i] || 0;
-    const y = pb[i] || 0;
+  const va = parseVersion(a);
+  const vb = parseVersion(b);
+  for (let i = 0; i < Math.max(va.nums.length, vb.nums.length); i += 1) {
+    const x = va.nums[i] || 0;
+    const y = vb.nums[i] || 0;
     if (x > y) return 1;
     if (x < y) return -1;
   }
-  return 0;
+  if (!va.pre && vb.pre) return 1;
+  if (va.pre && !vb.pre) return -1;
+  if (va.pre === vb.pre) return 0;
+  return va.pre > vb.pre ? 1 : -1;
+}
+
+/* GitHub 只在没有预发布版时才给 /releases/latest，所以 404 时退回去拉列表 */
+async function fetchLatestRelease() {
+  const headers = { Accept: 'application/vnd.github+json' };
+  const base = `https://api.github.com/repos/${UPDATE_REPO}`;
+  const res = await fetch(`${base}/releases/latest`, { headers, cache: 'no-store' });
+  if (res.ok) return res.json();
+  const list = await fetch(`${base}/releases?per_page=5`, { headers, cache: 'no-store' });
+  if (!list.ok) return null;
+  const rows = await list.json();
+  return Array.isArray(rows) && rows.length ? rows[0] : null;
 }
 
 function showUpdate(version, url) {
@@ -917,15 +943,11 @@ function showUpdate(version, url) {
 
 async function checkForUpdate(manual = false) {
   try {
-    const res = await fetch(`https://api.github.com/repos/${UPDATE_REPO}/releases/latest`, {
-      headers: { Accept: 'application/vnd.github+json' },
-      cache: 'no-store',
-    });
-    if (!res.ok) {
-      if (manual) toast('已经是最新版本');
+    const data = await fetchLatestRelease();
+    if (!data) {
+      if (manual) toast('还没发布过版本');
       return;
     }
-    const data = await res.json();
     const latest = String(data.tag_name || '').replace(/^v/i, '');
     if (latest && compareVersion(latest, APP_VERSION) > 0) {
       const apk = (data.assets || []).find((asset) => String(asset.name).toLowerCase().endsWith('.apk'));
