@@ -1835,3 +1835,159 @@ body[data-theme="dark"] .model-test-out.ok {
     opacity: 1;
   }
 }
+
+/* ============================ 模型提供商 ============================ */
+
+.provider-add {
+  display: block;
+  width: 100%;
+  margin: 0 0 14px;
+  padding: 14px;
+  font-family: var(--font-ui);
+  font-size: 14px;
+  color: var(--ink);
+  background: transparent;
+  border: 1px dashed var(--line-strong);
+  cursor: pointer;
+}
+
+.provider-add:hover {
+  background: var(--bg-soft);
+}
+
+.prov-tabs {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 18px;
+}
+
+.prov-tab {
+  padding: 8px 14px;
+  font-family: var(--font-ui);
+  font-size: 13.5px;
+  color: var(--muted);
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  cursor: pointer;
+}
+
+.prov-tab.on {
+  color: var(--ink);
+  background: var(--bg);
+  border-color: var(--line-strong);
+}
+
+.prov-item {
+  margin: 0 0 10px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+}
+
+.prov-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 14px;
+  font-family: var(--font-ui);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.prov-name {
+  flex: 1;
+  font-size: 14.5px;
+  color: var(--ink);
+}
+
+.prov-meta {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.prov-body {
+  display: none;
+}
+
+.prov-item.open .prov-body {
+  display: block;
+}
+
+.prov-body-inner {
+  padding: 0 14px 14px;
+}
+
+.prov-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0 12px;
+}
+
+.prov-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  font-size: 12.5px;
+  color: var(--ink);
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+}
+
+.prov-chip i {
+  font-style: normal;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.prov-chip i:hover {
+  color: var(--red);
+}
+
+.prov-add-row {
+  display: flex;
+  gap: 8px;
+  margin: 0 0 14px;
+}
+
+.prov-add-row .plain-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.prov-models-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 18px 0 6px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.prov-link {
+  padding: 0;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  color: var(--blue);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.prov-status {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--ink);
+  word-break: break-word;
+  background: var(--bg-soft);
+}
+
+.prov-status.fail {
+  color: var(--red);
+  background: var(--red-wash);
+}

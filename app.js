@@ -22,6 +22,11 @@ const MODELS = [
     baseUrl: 'https://api.deepseek.com',
   },
   {
+    id: 'deepseek-v4.1-flash-free',
+    upstream: 'deepseek-v4.1-flash-free',
+    baseUrl: 'https://opencode.ai/inference/openai/v1',
+  },
+  {
     id: 'Qwen-3.7-Flash',
     upstream: 'qwen3.7-flash',
     baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
@@ -71,13 +76,24 @@ const MODELS = [
     upstream: 'fledge-alpha-free',
     baseUrl: '',
   },
+  {
+    id: 'Hy4 flash',
+    upstream: 'hy4-flash-free',
+    baseUrl: 'https://opencode.ai/inference/openai/v1',
+  },
+  {
+    id: 'Inkling 2 Small',
+    upstream: 'inkling-2-small-free',
+    baseUrl: 'https://opencode.ai/inference/openai/v1',
+  },
 ];
 
-const APP_VERSION = '0.2.0-rc.2';
+const APP_VERSION = '0.2.0-rc.3';
 
 const SUB_TITLES = {
   account: '账号',
   models: '模型',
+  providers: '模型提供商',
   data: '数据',
   language: '语言',
   appearance: '外观',
@@ -140,6 +156,7 @@ const state = {
   token: LS.get('token', ''),
   settings: { ...DEFAULT_SETTINGS, ...LS.get('settings', {}) },
   modelConfigs: LS.get('modelConfigs', {}),
+  providers: LS.get('providers', []),
   account: LS.get('account', null),
   convs: [],
   cache: new Map(),
@@ -639,48 +656,219 @@ async function reply(conv) {
   }
 }
 
+/* 安卓壳回调进来的入口（Java 侧 evaluateJavascript 调这几个） */
+window.__afvNativeStatus = (id, code) => window.__afvNative?.[id]?.status?.(code);
+window.__afvNativeChunk = (id, text) => window.__afvNative?.[id]?.chunk?.(text);
+window.__afvNativeDone = (id) => window.__afvNative?.[id]?.done?.();
+window.__afvNativeError = (id, message) => window.__afvNative?.[id]?.error?.(message);
+
+/**
+ * 安卓壳里没有 CORS 这道墙：走原生 HTTP，边收边喂给 ReadableStream。
+ * 普通浏览器里回到 fetch。
+ */
+function nativeSend(url, headers, body) {
+  return new Promise((resolve, reject) => {
+    const id = `r${Math.random().toString(36).slice(2)}`;
+    const encoder = new TextEncoder();
+    let controller = null;
+    let status = 0;
+    let settled = false;
+    let statusResolve;
+    const statusReady = new Promise((done) => {
+      statusResolve = done;
+    });
+
+    const stream = new ReadableStream({
+      start(c) {
+        controller = c;
+      },
+    });
+
+    const cleanup = () => {
+      if (window.__afvNative) delete window.__afvNative[id];
+    };
+
+    window.__afvNative = window.__afvNative || {};
+    window.__afvNative[id] = {
+      status(code) {
+        status = code;
+        statusResolve(code);
+      },
+      chunk(text) {
+        if (!controller) return;
+        try {
+          controller.enqueue(encoder.encode(text));
+        } catch {
+          /* 流已经关了 */
+        }
+      },
+      done() {
+        if (settled) return;
+        settled = true;
+        statusResolve(status || 200);
+        try {
+          controller.close();
+        } catch {
+          /* 已关闭 */
+        }
+        cleanup();
+      },
+      error(message) {
+        if (settled) return;
+        settled = true;
+        statusResolve(-1);
+        try {
+          controller.error(new Error(message || '原生请求失败'));
+        } catch {
+          /* 已关闭 */
+        }
+        cleanup();
+      },
+    };
+
+    try {
+      window.AFVNative.streamPost(id, url, JSON.stringify(headers), body);
+    } catch (err) {
+      window.__afvNative[id].error(err.message);
+    }
+
+    statusReady.then((code) => {
+      if (code === -1) {
+        reject(new Error('连不上服务器（原生请求失败）'));
+        return;
+      }
+      resolve({
+        ok: code >= 200 && code < 300,
+        status: code,
+        body: stream,
+        async text() {
+          const reader = stream.getReader();
+          const decoder = new TextDecoder();
+          let out = '';
+          for (;;) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            out += decoder.decode(value, { stream: true });
+          }
+          return out;
+        },
+        async json() {
+          return JSON.parse(await this.text());
+        },
+      });
+    });
+  });
+}
+
+async function postJson(url, headers, bodyText, signal, isServer) {
+  if (!isServer && window.AFVNative && typeof window.AFVNative.streamPost === 'function') {
+    return nativeSend(url, headers, bodyText);
+  }
+  return fetch(url, { method: 'POST', headers, signal, body: bodyText });
+}
+
+async function readError(res) {
+  let message = `请求失败（${res.status}）`;
+  try {
+    const data = await res.json();
+    message = data?.error?.message || data?.message || data?.error || message;
+  } catch {
+    /* 非 JSON */
+  }
+  return message;
+}
+
 async function streamReply(messages, model, onDelta, signal, onReasoning) {
   const isServer = state.mode === 'server';
-  const cfg = modelConfig(model);
-  const modelDef = MODELS.find((m) => m.id === model) || MODELS[0];
-  const base = String(cfg.baseUrl || modelDef.baseUrl || '').replace(/\/+$/, '');
-  if (!base) throw new Error('这个模型还没配 API 地址，去「设置 → 模型 → 自定义设置」里填上');
+  const rt = resolveModelRuntime(model);
+  const base = rt.baseUrl;
+  if (!base) throw new Error('这个模型还没配 API 地址，去「设置 → 模型」里填上');
+
+  if (!isServer && rt.protocol === 'anthropic') {
+    await anthropicChat({ messages, rt, base, onDelta, onReasoning, signal });
+    return;
+  }
+
   const url = isServer ? '/api/chat' : `${base}/chat/completions`;
   const headers = { 'Content-Type': 'application/json' };
-  // 发给上游的必须是真名，显示名（deepseek-V4.1-Flash 之类）上游不认
-  const apiModel = cfg.upstream || upstreamModel(model);
   if (isServer) {
     if (state.token) headers['x-afv-session'] = state.token;
   } else {
-    headers.Authorization = `Bearer ${cfg.apiKey || ''}`;
+    headers.Authorization = `Bearer ${rt.apiKey}`;
   }
 
-  const payload = { model: apiModel, messages, stream: true, temperature: 1 };
+  const payload = { model: rt.upstream, messages, stream: true, temperature: 1 };
   if (isServer) {
-    if (cfg.apiKey) payload.apiKey = cfg.apiKey;
-    payload.baseUrl = cfg.baseUrl || modelDef.baseUrl;
-    payload.upstream = apiModel;
+    if (rt.apiKey) payload.apiKey = rt.apiKey;
+    payload.baseUrl = base;
+    payload.upstream = rt.upstream;
   }
 
-  const res = await fetch(url, {
-    method: 'POST',
-    headers,
-    signal,
-    body: JSON.stringify(payload),
-  });
-
-  if (!res.ok) {
-    let message = `请求失败（${res.status}）`;
-    try {
-      const data = await res.json();
-      message = data?.error?.message || data?.error || message;
-    } catch {
-      /* 非 JSON */
-    }
-    throw new Error(message);
-  }
-
+  const res = await postJson(url, headers, JSON.stringify(payload), signal, isServer);
+  if (!res.ok) throw new Error(await readError(res));
   await readStream(res.body, onDelta, onReasoning);
+}
+
+/* Anthropic 原生协议：/v1/messages + x-api-key，SSE 事件格式也不一样 */
+async function anthropicChat({ messages, rt, base, onDelta, onReasoning, signal }) {
+  const root = String(base).replace(/\/+$/, '');
+  const url = /\/v1$/.test(root) ? `${root}/messages` : `${root}/v1/messages`;
+  const systemParts = messages.filter((m) => m.role === 'system').map((m) => m.content);
+  const chatMessages = messages
+    .filter((m) => m.role !== 'system')
+    .map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content }));
+
+  const body = { model: rt.upstream, max_tokens: 8192, messages: chatMessages, stream: true };
+  if (systemParts.length) body.system = systemParts.join('\n\n');
+
+  const res = await postJson(
+    url,
+    {
+      'Content-Type': 'application/json',
+      'x-api-key': rt.apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    JSON.stringify(body),
+    signal,
+    false,
+  );
+
+  if (!res.ok) throw new Error(await readError(res));
+  await readAnthropicStream(res.body, onDelta, onReasoning);
+}
+
+async function readAnthropicStream(body, onDelta, onReasoning) {
+  if (!body) throw new Error('没有收到数据流');
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    const parts = buffer.split('\n\n');
+    buffer = parts.pop() || '';
+    for (const part of parts) {
+      for (const line of part.split('\n')) {
+        if (!line.startsWith('data:')) continue;
+        const payload = line.slice(5).trim();
+        if (!payload || payload === '[DONE]') continue;
+        let json;
+        try {
+          json = JSON.parse(payload);
+        } catch {
+          continue;
+        }
+        if (json.type === 'error') throw new Error(json.error?.message || '上游返回错误');
+        const delta = json.delta;
+        if (delta?.type === 'thinking_delta' && delta.thinking && onReasoning) onReasoning();
+        if (delta?.type === 'text_delta' && delta.text) onDelta(delta.text);
+      }
+    }
+  }
 }
 
 /* 上游的英文报错翻成人话，别让老大看天书 */
@@ -1212,8 +1400,98 @@ function saveSettings() {
 /* 模型                                                                */
 /* ================================================================== */
 
+/* ---------------- 用户自己加的提供商（仿 DSH 的添加模型提供商） ---------------- */
+
+const PROVIDER_CATALOG = [
+  { id: 'deepseek', name: 'DeepSeek', baseUrl: 'https://api.deepseek.com', protocol: 'openai' },
+  { id: 'opencode', name: 'OpenCode Zen', baseUrl: 'https://opencode.ai/inference/openai/v1', protocol: 'openai' },
+  { id: 'openai', name: 'OpenAI', baseUrl: 'https://api.openai.com/v1', protocol: 'openai' },
+  { id: 'anthropic', name: 'Anthropic', baseUrl: 'https://api.anthropic.com', protocol: 'anthropic' },
+  {
+    id: 'google',
+    name: 'Google Gemini',
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+    protocol: 'openai',
+  },
+  {
+    id: 'dashscope',
+    name: '阿里云百炼 Qwen',
+    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    protocol: 'openai',
+  },
+  { id: 'zhipu', name: '智谱 GLM', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', protocol: 'openai' },
+  { id: 'xai', name: 'xAI Grok', baseUrl: 'https://api.x.ai/v1', protocol: 'openai' },
+  { id: 'moonshot', name: 'Moonshot Kimi', baseUrl: 'https://api.moonshot.cn/v1', protocol: 'openai' },
+];
+
+function providers() {
+  return Array.isArray(state.providers) ? state.providers : [];
+}
+
+function saveProviders() {
+  LS.set('providers', providers());
+}
+
+function providerModelKey(providerId, modelId) {
+  return `${providerId}/${modelId}`;
+}
+
+function isProviderModel(id) {
+  return typeof id === 'string' && id.includes('/');
+}
+
+function findProviderModel(id) {
+  if (!isProviderModel(id)) return null;
+  const cut = id.indexOf('/');
+  const providerId = id.slice(0, cut);
+  const modelId = id.slice(cut + 1);
+  const provider = providers().find((p) => p.id === providerId);
+  if (!provider) return null;
+  const model = (provider.models || []).find((m) => m.id === modelId);
+  if (!model) return null;
+  return { provider, model };
+}
+
+function allModels() {
+  const list = MODELS.map((m) => ({ id: m.id, label: m.id, group: '' }));
+  for (const provider of providers()) {
+    for (const model of provider.models || []) {
+      list.push({
+        id: providerModelKey(provider.id, model.id),
+        label: model.name || model.id,
+        group: provider.name || provider.id,
+      });
+    }
+  }
+  return list;
+}
+
+/** 把「模型 id」翻译成真正要发的请求参数 */
+function resolveModelRuntime(id) {
+  const hit = findProviderModel(id);
+  if (hit) {
+    return {
+      upstream: hit.model.id,
+      baseUrl: String(hit.provider.baseUrl || '').replace(/\/+$/, ''),
+      protocol: hit.provider.protocol === 'anthropic' ? 'anthropic' : 'openai',
+      apiKey: hit.provider.apiKey || '',
+      label: hit.model.name || hit.model.id,
+    };
+  }
+  const def = MODELS.find((m) => m.id === id) || MODELS[0];
+  const cfg = modelConfig(def.id);
+  return {
+    upstream: cfg.upstream || def.upstream,
+    baseUrl: String(cfg.baseUrl || def.baseUrl || '').replace(/\/+$/, ''),
+    protocol: 'openai',
+    apiKey: cfg.apiKey || '',
+    label: def.id,
+  };
+}
+
 function currentModel() {
-  return state.current?.model || state.settings.model || MODELS[0].id;
+  const id = state.current?.model || state.settings.model || MODELS[0].id;
+  return allModels().some((m) => m.id === id) ? id : MODELS[0].id;
 }
 
 function modelConfig(id) {
@@ -1221,6 +1499,8 @@ function modelConfig(id) {
 }
 
 function modelReady(id) {
+  const hit = findProviderModel(id);
+  if (hit) return Boolean(hit.provider.apiKey);
   if (modelConfig(id).apiKey) return true;
   // 服务端 .env 里的 key 只兜底默认模型
   if (state.mode === 'server' && state.config.apiKeyReady && id === MODELS[0].id) return true;
@@ -1228,6 +1508,8 @@ function modelReady(id) {
 }
 
 function modelLabel(id) {
+  const hit = findProviderModel(id);
+  if (hit) return hit.model.name || hit.model.id;
   return MODELS.find((m) => m.id === id)?.id || id;
 }
 
@@ -1304,14 +1586,15 @@ function setModel(id) {
 }
 
 function pickModel(anchor) {
-  openMenu(
-    anchor,
-    MODELS.map((m) => ({ value: m.id, label: m.id, active: m.id === state.settings.model })),
-    (value) => {
-      setModel(value);
-      toast(`模型：${value}`);
-    },
-  );
+  const items = allModels().map((m) => ({
+    value: m.id,
+    label: m.group ? `${m.group} · ${m.label}` : m.label,
+    active: m.id === currentModel(),
+  }));
+  openMenu(anchor, items, (value) => {
+    setModel(value);
+    toast(`模型：${modelLabel(value)}`);
+  });
 }
 
 /* ================================================================== */
@@ -1356,6 +1639,327 @@ function closeSub() {
   refreshSettingsValues();
 }
 
+/* ---------------- 添加模型提供商（仿 DSH） ---------------- */
+
+function providerTabs(active) {
+  return (
+    `<div class="prov-tabs">` +
+    `<button class="prov-tab${active === 'catalog' ? ' on' : ''}" data-tab="catalog" type="button">第三方模型提供商</button>` +
+    `<button class="prov-tab${active === 'custom' ? ' on' : ''}" data-tab="custom" type="button">自定义模型 API</button>` +
+    `</div>`
+  );
+}
+
+function providerChips(models, attr) {
+  if (!models.length) return '<span class="sub-hint">还没加模型</span>';
+  return models
+    .map(
+      (m) =>
+        `<span class="prov-chip">${escapeHtml(m.name || m.id)}<i ${attr}="${escapeHtml(m.id)}">×</i></span>`,
+    )
+    .join('');
+}
+
+function readCustomFields(body) {
+  return {
+    id: body.querySelector('#cId')?.value.trim() || '',
+    name: body.querySelector('#cName')?.value.trim() || '',
+    baseUrl: body.querySelector('#cBase')?.value.trim() || '',
+    protocol: body.querySelector('#cProto')?.value || 'openai',
+    apiKey: body.querySelector('#cKey')?.value.trim() || '',
+  };
+}
+
+function renderProviderList(body) {
+  const rows = providers()
+    .map((provider) => {
+      const models = provider.models || [];
+      return (
+        `<div class="prov-item" data-id="${escapeHtml(provider.id)}">` +
+        `<button class="prov-head" type="button">` +
+        `<span class="prov-name">${escapeHtml(provider.name || provider.id)}</span>` +
+        `<span class="prov-meta">${models.length} 个模型</span>` +
+        `<span class="model-edit">编辑</span>` +
+        `</button>` +
+        `<div class="prov-body"><div class="prov-body-inner">` +
+        `<label class="sub-label">API 地址</label>` +
+        `<input class="plain-input" data-pfield="baseUrl" value="${escapeHtml(provider.baseUrl || '')}" autocomplete="off" spellcheck="false" />` +
+        `<label class="sub-label">API 密钥</label>` +
+        `<input class="plain-input" data-pfield="apiKey" type="password" value="${escapeHtml(provider.apiKey || '')}" autocomplete="off" spellcheck="false" />` +
+        `<label class="sub-label">模型</label>` +
+        `<div class="prov-chips">${providerChips(models, 'data-rmodel')}</div>` +
+        `<div class="prov-add-row">` +
+        `<input class="plain-input" data-pnew placeholder="模型 ID，例如 gpt-5.6-luna" autocomplete="off" spellcheck="false" />` +
+        `<button class="btn" type="button" data-padd>添加</button>` +
+        `</div>` +
+        `<div class="model-actions">` +
+        `<button class="btn" type="button" data-pdel>删除提供商</button>` +
+        `<button class="btn primary" type="button" data-psave>保存</button>` +
+        `</div>` +
+        `</div></div>` +
+        `</div>`
+      );
+    })
+    .join('');
+
+  body.innerHTML =
+    (rows || '<p class="sub-hint">还没添加过提供商。你自己加的模型会排在模型选择器最后。</p>') +
+    `<button class="provider-add" type="button" id="provNew">＋ 添加模型提供商</button>`;
+
+  body.querySelector('#provNew')?.addEventListener('click', () => {
+    state.providerView = 'catalog';
+    openSub('providers');
+  });
+
+  body.querySelectorAll('.prov-head').forEach((head) => {
+    head.addEventListener('click', () => {
+      const item = head.closest('.prov-item');
+      const open = item.classList.contains('open');
+      body.querySelectorAll('.prov-item.open').forEach((n) => n.classList.remove('open'));
+      if (!open) item.classList.add('open');
+    });
+  });
+
+  body.querySelectorAll('[data-psave]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const item = button.closest('.prov-item');
+      const provider = providers().find((p) => p.id === item.dataset.id);
+      if (!provider) return;
+      provider.baseUrl = item.querySelector('[data-pfield="baseUrl"]').value.trim();
+      provider.apiKey = item.querySelector('[data-pfield="apiKey"]').value.trim();
+      saveProviders();
+      toast('已保存');
+      openSub('providers');
+    });
+  });
+
+  body.querySelectorAll('[data-padd]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const item = button.closest('.prov-item');
+      const provider = providers().find((p) => p.id === item.dataset.id);
+      const value = item.querySelector('[data-pnew]').value.trim();
+      if (!provider || !value) return;
+      provider.models = provider.models || [];
+      if (provider.models.some((m) => m.id === value)) {
+        toast('这个模型已经加过了');
+        return;
+      }
+      provider.models.push({ id: value, name: value });
+      saveProviders();
+      openSub('providers');
+      toast(`已添加 ${value}`);
+    });
+  });
+
+  body.querySelectorAll('[data-rmodel]').forEach((icon) => {
+    icon.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const item = icon.closest('.prov-item');
+      const provider = providers().find((p) => p.id === item.dataset.id);
+      if (!provider) return;
+      provider.models = (provider.models || []).filter((m) => m.id !== icon.dataset.rmodel);
+      saveProviders();
+      openSub('providers');
+    });
+  });
+
+  body.querySelectorAll('[data-pdel]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const id = button.closest('.prov-item').dataset.id;
+      state.providers = providers().filter((p) => p.id !== id);
+      saveProviders();
+      if (isProviderModel(state.settings.model) && state.settings.model.startsWith(`${id}/`)) {
+        setModel(MODELS[0].id);
+      }
+      openSub('providers');
+      toast('已删除');
+    });
+  });
+}
+
+function renderProviderForm(body, kind) {
+  const draft = state.providerDraft || {};
+  const draftModels = draft.models || [];
+
+  if (kind === 'catalog') {
+    body.innerHTML =
+      providerTabs('catalog') +
+      `<p class="sub-hint">从内置目录选提供商，填上它的 API 密钥即可。加完在列表里展开它，把要用的模型 ID 加进去。</p>` +
+      `<label class="sub-label">提供商</label>` +
+      `<select class="plain-input" id="provPick">` +
+      PROVIDER_CATALOG.map((p) => `<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('') +
+      `</select>` +
+      `<label class="sub-label">API 密钥</label>` +
+      `<input class="plain-input" id="provKey" type="password" placeholder="粘贴该提供商的 API 密钥" autocomplete="off" spellcheck="false" />` +
+      `<div class="model-actions">` +
+      `<button class="btn" type="button" data-back>取消</button>` +
+      `<button class="btn primary" type="button" data-create>添加</button>` +
+      `</div>`;
+  } else {
+    body.innerHTML =
+      providerTabs('custom') +
+      `<p class="sub-hint">连接中转站、自部署服务或其他兼容 OpenAI / Anthropic 协议的接口，要填地址、协议和模型。</p>` +
+      `<label class="sub-label">Provider ID</label>` +
+      `<input class="plain-input" id="cId" placeholder="acme-gateway" value="${escapeHtml(draft.id || '')}" autocomplete="off" spellcheck="false" />` +
+      `<p class="sub-hint">以小写字母开头的标识，在请求中唯一标识该提供商。</p>` +
+      `<label class="sub-label">显示名称</label>` +
+      `<input class="plain-input" id="cName" placeholder="显示名称" value="${escapeHtml(draft.name || '')}" autocomplete="off" />` +
+      `<label class="sub-label">API 地址</label>` +
+      `<input class="plain-input" id="cBase" placeholder="https://gateway.example/v1" value="${escapeHtml(draft.baseUrl || '')}" autocomplete="off" spellcheck="false" />` +
+      `<label class="sub-label">API 协议</label>` +
+      `<select class="plain-input" id="cProto">` +
+      `<option value="openai"${draft.protocol === 'anthropic' ? '' : ' selected'}>OpenAI Chat Completions</option>` +
+      `<option value="anthropic"${draft.protocol === 'anthropic' ? ' selected' : ''}>Anthropic Messages</option>` +
+      `</select>` +
+      `<label class="sub-label">API 密钥</label>` +
+      `<input class="plain-input" id="cKey" type="password" placeholder="输入 API 密钥" value="${escapeHtml(draft.apiKey || '')}" autocomplete="off" spellcheck="false" />` +
+      `<div class="prov-models-head"><span>模型目录</span><button class="prov-link" type="button" id="cFetch">获取可用模型</button></div>` +
+      `<div class="prov-chips">${providerChips(draftModels, 'data-drm')}</div>` +
+      `<div class="prov-add-row">` +
+      `<input class="plain-input" id="cNewModel" placeholder="模型 ID，例如 gpt-5.6-luna" autocomplete="off" spellcheck="false" />` +
+      `<button class="btn" type="button" id="cAddModel">添加</button>` +
+      `</div>` +
+      `<div class="prov-status" id="cStatus" hidden></div>` +
+      `<div class="model-actions">` +
+      `<button class="btn" type="button" data-back>取消</button>` +
+      `<button class="btn primary" type="button" data-create>创建提供商</button>` +
+      `</div>`;
+  }
+
+  body.querySelectorAll('.prov-tab').forEach((tab) => {
+    tab.addEventListener('click', () => {
+      state.providerView = tab.dataset.tab;
+      openSub('providers');
+    });
+  });
+
+  body.querySelectorAll('[data-back]').forEach((button) => {
+    button.addEventListener('click', () => {
+      state.providerView = 'list';
+      state.providerDraft = null;
+      openSub('providers');
+    });
+  });
+
+  if (kind === 'catalog') {
+    body.querySelector('[data-create]')?.addEventListener('click', () => {
+      const pick = body.querySelector('#provPick').value;
+      const apiKey = body.querySelector('#provKey').value.trim();
+      const item = PROVIDER_CATALOG.find((p) => p.id === pick);
+      if (!item) return;
+      if (!apiKey) {
+        toast('先填 API 密钥');
+        return;
+      }
+      if (providers().some((p) => p.id === item.id)) {
+        toast('这个提供商已经加过了');
+        return;
+      }
+      state.providers = providers().concat([
+        {
+          id: item.id,
+          name: item.name,
+          baseUrl: item.baseUrl,
+          protocol: item.protocol,
+          apiKey,
+          models: [],
+        },
+      ]);
+      saveProviders();
+      state.providerView = 'list';
+      openSub('providers');
+      toast(`已添加 ${item.name}，展开它加模型`);
+    });
+    return;
+  }
+
+  const remember = (patch) => {
+    state.providerDraft = { ...readCustomFields(body), models: draftModels, ...patch };
+    openSub('providers');
+  };
+
+  body.querySelector('#cAddModel')?.addEventListener('click', () => {
+    const value = body.querySelector('#cNewModel').value.trim();
+    if (!value) return;
+    if (draftModels.some((m) => m.id === value)) return;
+    remember({ models: draftModels.concat([{ id: value, name: value }]) });
+  });
+
+  body.querySelectorAll('[data-drm]').forEach((icon) => {
+    icon.addEventListener('click', () => {
+      remember({ models: draftModels.filter((m) => m.id !== icon.dataset.drm) });
+    });
+  });
+
+  body.querySelector('#cFetch')?.addEventListener('click', async () => {
+    const fields = readCustomFields(body);
+    const status = body.querySelector('#cStatus');
+    if (!fields.baseUrl) {
+      toast('先填 API 地址');
+      return;
+    }
+    status.hidden = false;
+    status.className = 'prov-status';
+    status.textContent = '正在拉模型列表…';
+    try {
+      const headers = {};
+      if (fields.apiKey) {
+        if (fields.protocol === 'anthropic') headers['x-api-key'] = fields.apiKey;
+        else headers.Authorization = `Bearer ${fields.apiKey}`;
+      }
+      if (fields.protocol === 'anthropic') headers['anthropic-version'] = '2023-06-01';
+      const res = await fetch(`${fields.baseUrl.replace(/\/+$/, '')}/models`, { headers });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const rows = Array.isArray(data?.data) ? data.data : Array.isArray(data) ? data : [];
+      const models = rows.map((row) => ({ id: row.id, name: row.name || row.id })).filter((m) => m.id);
+      if (!models.length) throw new Error('返回里没有模型');
+      state.providerDraft = { ...fields, models };
+      openSub('providers');
+      toast(`拉到 ${models.length} 个模型`);
+    } catch (err) {
+      status.className = 'prov-status fail';
+      status.textContent = friendlyError(err.message);
+    }
+  });
+
+  body.querySelector('[data-create]')?.addEventListener('click', () => {
+    const fields = readCustomFields(body);
+    const models = state.providerDraft?.models || [];
+    if (!/^[a-z0-9][a-z0-9-]*$/.test(fields.id)) {
+      toast('Provider ID 要小写字母或数字开头，只能含小写字母、数字、-');
+      return;
+    }
+    if (!fields.baseUrl) {
+      toast('先填 API 地址');
+      return;
+    }
+    if (!models.length) {
+      toast('至少加一个模型');
+      return;
+    }
+    if (providers().some((p) => p.id === fields.id)) {
+      toast('这个 Provider ID 已经用了');
+      return;
+    }
+    state.providers = providers().concat([
+      {
+        id: fields.id,
+        name: fields.name || fields.id,
+        baseUrl: fields.baseUrl,
+        protocol: fields.protocol,
+        apiKey: fields.apiKey,
+        models,
+      },
+    ]);
+    saveProviders();
+    state.providerDraft = null;
+    state.providerView = 'list';
+    openSub('providers');
+    toast(`已创建 ${fields.name || fields.id}`);
+  });
+}
+
 const SUB_RENDERERS = {
   account(body) {
     const phone = state.account?.phone || '';
@@ -1396,6 +2000,7 @@ const SUB_RENDERERS = {
 
   models(body) {
     body.innerHTML =
+      `<button class="provider-add" id="addProviderBtn" type="button">＋ 添加模型提供商</button>` +
       `<div class="model-tip">给每个模型填上自己的 API 密钥，填完就能用；没填的不能发消息。</div>` +
       `<div class="model-list">` +
       MODELS.map((model) => {
@@ -1432,6 +2037,11 @@ const SUB_RENDERERS = {
         );
       }).join('') +
       `</div>`;
+
+    body.querySelector('#addProviderBtn')?.addEventListener('click', () => {
+      state.providerView = 'list';
+      openSub('providers');
+    });
 
     body.querySelectorAll('.model-head').forEach((head) => {
       head.addEventListener('click', () => {
@@ -1489,6 +2099,12 @@ const SUB_RENDERERS = {
         toast(apiKey || cfg.baseUrl || cfg.upstream ? '已保存' : '已清空');
       });
     });
+  },
+
+  providers(body) {
+    const view = state.providerView || 'list';
+    if (view === 'catalog' || view === 'custom') renderProviderForm(body, view);
+    else renderProviderList(body);
   },
 
   data(body) {
