@@ -136,10 +136,11 @@ class LocalStore {
         title: conv.title || '未命名对话',
         createdAt: conv.createdAt || 0,
         updatedAt: conv.updatedAt || 0,
-        model: conv.model || 'deepseek-chat',
+        model: conv.model || 'deepseek-V4.1-Flash',
+        pinned: Boolean(conv.pinned),
         count: conv.messages ? conv.messages.length : 0,
       }))
-      .sort((a, b) => b.updatedAt - a.updatedAt);
+      .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.updatedAt - a.updatedAt);
   }
 
   async get(id) {

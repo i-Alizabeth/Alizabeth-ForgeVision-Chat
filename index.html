@@ -46,49 +46,41 @@
   </div>
 
   <div class="sb-panel">
-    <button class="sb-row" data-action="open-settings" title="模型与接口">
+    <button class="sb-row" id="sbModelRow" title="选择模型">
       <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2v3M8 11v3M2 8h3M11 8h3" /><circle cx="8" cy="8" r="2.6" /></svg>
       <span class="sb-row-label">模型</span>
-      <b class="sb-row-value" id="sbModel">deepseek-chat</b>
+      <b class="sb-row-value" id="sbModel">—</b>
     </button>
-    <button class="sb-row" data-action="open-settings" title="存储与备份">
-      <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="3" width="11" height="3.2" /><path d="M3.5 6.2v6.3h9V6.2M6 9h4" /></svg>
-      <span class="sb-row-label">存储</span>
-      <b class="sb-row-value" id="sbStore">本机</b>
-    </button>
-  </div>
-
-  <div class="sb-search">
-    <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.2" /><path d="m10.2 10.2 3 3" /></svg>
-    <input id="searchInput" type="search" placeholder="搜索对话…" autocomplete="off" />
   </div>
 
   <div class="sb-scroll">
-    <div class="sb-group-head">
+    <div class="sb-group-head" id="sessHead">
       <span>对话</span>
-      <span class="sb-group-actions">
-        <button class="sb-mini" data-action="new-chat" title="新对话">
-          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" /></svg>
-        </button>
-      </span>
     </div>
     <div class="sb-list" id="sessionList"></div>
-    <div class="sb-empty" id="sessionEmpty" hidden>还没有对话，点上面的 ＋ 开始</div>
+    <div class="sb-empty" id="sessionEmpty" hidden>还没有对话</div>
   </div>
 
-  <div class="sb-foot">
-    <button class="sb-fbtn" data-action="new-chat" title="新对话"><svg viewBox="0 0 20 20"><path d="M10 4v12M4 10h12" /></svg></button>
-    <button class="sb-fbtn" data-action="open-settings" title="设置"><svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="2.6" /><path d="M10 2.6v2.2M10 15.2v2.2M2.6 10h2.2M15.2 10h2.2M4.8 4.8l1.6 1.6M13.6 13.6l1.6 1.6M15.2 4.8l-1.6 1.6M6.4 13.6l-1.6 1.6" /></svg></button>
-    <button class="sb-fbtn" data-action="toggle-theme" title="主题"><svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="7" /><path d="M10 3a7 7 0 0 1 0 14z" fill="currentColor" stroke="none" /></svg></button>
-    <button class="sb-fbtn" data-action="collapse" title="折叠"><svg viewBox="0 0 20 20"><path d="M3.5 10h13M9 6l-3.5 4L9 14" /></svg></button>
-  </div>
-  <div class="sb-user">
-    <div class="sb-avatar">AFV</div>
-    <div class="sb-user-text">
-      <b id="sbUserName">本地用户</b>
-      <span id="sbUserSub">数据只在这台设备</span>
-    </div>
-  </div>
+  <button class="sb-user" id="userRow" aria-label="设置">
+    <span class="sb-avatar" aria-hidden="true">
+      <svg viewBox="0 0 40 40">
+        <rect x="0.5" y="0.5" width="39" height="39" fill="#ffffff" stroke="#d8dbe0" />
+        <rect x="6" y="6" width="28" height="28" fill="#f1f2f4" />
+        <rect x="17" y="11.5" width="6" height="6" fill="#5b6b86" />
+        <path d="M12 29v-4a8 8 0 0 1 16 0v4" fill="none" stroke="#5b6b86" stroke-width="2.6" stroke-linecap="round" />
+      </svg>
+    </span>
+    <span class="sb-user-text">
+      <b id="sbUserName">未登录</b>
+      <span id="sbUserSub">点这里登录</span>
+    </span>
+    <span class="sb-gear" aria-hidden="true">
+      <svg viewBox="0 0 20 20">
+        <rect x="3.4" y="3.4" width="13.2" height="13.2" />
+        <rect x="3.4" y="3.4" width="13.2" height="13.2" transform="rotate(45 10 10)" />
+      </svg>
+    </span>
+  </button>
 </aside>
 
 <div class="scrim" id="scrim" hidden></div>
@@ -96,15 +88,11 @@
 <!-- ============================ 主区 ============================ -->
 <main class="main" id="main">
   <header class="topbar">
-    <button class="icon-btn only-mobile" id="menuBtn" aria-label="菜单">
+    <button class="icon-btn" id="menuBtn" aria-label="菜单">
       <svg viewBox="0 0 20 20"><path d="M3 6h14M3 10h14M3 14h14" /></svg>
     </button>
     <div class="tb-title" id="chatTitle">新对话</div>
     <div class="tb-actions">
-      <button class="model-chip" id="modelChip" aria-haspopup="listbox">
-        <span id="modelChipLabel">deepseek-chat</span>
-        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6.5 4 4 4-4" /></svg>
-      </button>
       <button class="icon-btn" data-action="new-chat" aria-label="新对话">
         <svg viewBox="0 0 20 20"><path d="M10 4v12M4 10h12" /></svg>
       </button>
@@ -125,11 +113,6 @@
         <span id="heroText"></span><i class="hero-caret" aria-hidden="true"></i>
       </h1>
       <div class="hero-meta"><span>AFV.01A</span><span class="hero-meta-rule"></span></div>
-      <div class="hero-chips" id="heroChips">
-        <button class="chip" data-prompt="帮我规划一周的写作计划">帮我规划一周的写作计划</button>
-        <button class="chip" data-prompt="用一句话解释什么是向量数据库">什么是向量数据库</button>
-        <button class="chip" data-prompt="把这段话改得更简洁有力：">帮我润色一段文字</button>
-      </div>
     </section>
     <div class="flow" id="flow"></div>
   </div>
@@ -142,14 +125,14 @@
           <button class="tool-btn" id="attachBtn" title="附加文本文件">
             <svg viewBox="0 0 20 20"><path d="M10 4v12M4 10h12" /></svg>
           </button>
-          <button class="tool-btn tool-model" id="toolModel" aria-haspopup="listbox">
-            <span id="toolModelLabel">deepseek-chat</span>
-            <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6.5 4 4 4-4" /></svg>
+          <button class="tool-btn search-btn" id="webSearchBtn" aria-pressed="false" title="联网搜索">
+            <svg viewBox="0 0 20 20"><circle cx="10" cy="10" r="7" /><path d="M3 10h14" /><path d="M10 3c2.4 2.5 2.4 11.5 0 14M10 3c-2.4 2.5-2.4 11.5 0 14" /></svg>
+            <span>联网搜索</span>
           </button>
         </div>
         <div class="ct-right">
           <button class="send-btn" id="stopBtn" hidden title="停止生成">
-            <svg viewBox="0 0 20 20"><rect x="6" y="6" width="8" height="8" rx="1" /></svg>
+            <svg viewBox="0 0 20 20"><rect x="6" y="6" width="8" height="8" rx="0.5" /></svg>
           </button>
           <button class="send-btn" id="sendBtn" title="发送" disabled>
             <svg viewBox="0 0 20 20"><path d="M10 15V5M5.5 9.5 10 5l4.5 4.5" /></svg>
@@ -162,57 +145,146 @@
 </main>
 
 <!-- ============================ 设置 ============================ -->
-<div class="modal" id="settingsModal" hidden>
-  <div class="modal-card" role="dialog" aria-modal="true" aria-label="设置">
-    <div class="modal-head">
-      <h2>设置</h2>
-      <button class="icon-btn" id="settingsClose" aria-label="关闭"><svg viewBox="0 0 20 20"><path d="m5 5 10 10M15 5 5 15" /></svg></button>
+<div class="page page-tinted" id="settingsPage" hidden>
+  <header class="page-head">
+    <button class="page-back" id="settingsBack" aria-label="返回">
+      <svg viewBox="0 0 20 20"><path d="M12.5 4 6.5 10l6 6" /></svg>
+    </button>
+    <h2>设置</h2>
+  </header>
+  <div class="page-body page-body--settings">
+    <section class="set-section">
+      <div class="set-section-title">账户</div>
+      <div class="set-group">
+        <button class="set-item" data-open="account">
+          <span class="set-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4" /><path d="M4.5 20.5c.6-3.8 3.6-6 7.5-6s6.9 2.2 7.5 6" /></svg></span>
+          <span class="set-label">账号</span>
+          <i id="setAccountValue">未登录</i>
+          <span class="chev">›</span>
+        </button>
+        <button class="set-item" data-open="models">
+          <span class="set-icon"><svg viewBox="0 0 24 24"><rect x="8.5" y="3" width="9" height="9" /><rect x="3" y="8.5" width="9" height="9" /><rect x="12" y="12" width="9" height="9" /></svg></span>
+          <span class="set-label">模型</span>
+          <i id="setModelValue">—</i>
+          <span class="chev">›</span>
+        </button>
+        <button class="set-item" data-open="data">
+          <span class="set-icon"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" /><rect x="3" y="13" width="18" height="7" /><path d="M6.5 7.5h.01M6.5 16.5h.01" /></svg></span>
+          <span class="set-label">数据</span>
+          <span class="chev">›</span>
+        </button>
+      </div>
+    </section>
+
+    <section class="set-section">
+      <div class="set-section-title">应用</div>
+      <div class="set-group">
+        <button class="set-item" data-open="language">
+          <span class="set-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><path d="M3 12h18" /><path d="M12 3c2.5 2.6 2.5 15.4 0 18M12 3c-2.5 2.6-2.5 15.4 0 18" /></svg></span>
+          <span class="set-label">语言</span>
+          <span class="chev">›</span>
+        </button>
+        <button class="set-item" data-open="appearance">
+          <span class="set-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.2" /><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.2 5.2l1.6 1.6M17.2 17.2l1.6 1.6M18.8 5.2l-1.6 1.6M6.8 17.2l-1.6 1.6" /></svg></span>
+          <span class="set-label">外观</span>
+          <span class="chev">›</span>
+        </button>
+        <button class="set-item" data-open="font">
+          <span class="set-icon"><svg viewBox="0 0 24 24"><text x="1.5" y="17" font-family="system-ui, sans-serif" font-size="11" font-weight="600" fill="currentColor" stroke="none">A</text><text x="9.5" y="19.5" font-family="system-ui, sans-serif" font-size="16" font-weight="600" fill="currentColor" stroke="none">A</text></svg></span>
+          <span class="set-label">字体大小</span>
+          <span class="chev">›</span>
+        </button>
+        <button class="set-item" data-open="terms">
+          <span class="set-icon"><svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z" /><path d="M14 3v4h4" /><path d="M9.5 12h5M9.5 16h3.5" /></svg></span>
+          <span class="set-label">服务协议</span>
+          <span class="chev">›</span>
+        </button>
+        <button class="set-item" data-open="help">
+          <span class="set-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><path d="M9.6 9.4a2.6 2.6 0 1 1 3.6 2.4c-.8.4-1.2 1-1.2 1.8v.4" /><path d="M12 17.2h.01" /></svg></span>
+          <span class="set-label">帮助与反馈</span>
+          <span class="chev">›</span>
+        </button>
+      </div>
+    </section>
+
+    <section class="set-section">
+      <div class="set-section-title">其他</div>
+      <div class="set-group">
+        <button class="set-item" data-open="update">
+          <span class="set-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><path d="M12 11v6M12 7.3h.01" /></svg></span>
+          <span class="set-label">检查更新</span>
+          <i id="setVersionValue">v0.1.0</i>
+          <span class="chev">›</span>
+        </button>
+        <button class="set-item" id="logoutBtn">
+          <span class="set-icon"><svg viewBox="0 0 24 24"><path d="M14 4h5v16h-5" /><path d="M10 12H3M6.5 8.5 3 12l3.5 3.5" /></svg></span>
+          <span class="set-label danger">退出登录</span>
+        </button>
+      </div>
+    </section>
+  </div>
+</div>
+
+<!-- ============================ 设置子页 ============================ -->
+<div class="page page-tinted" id="subPage" hidden>
+  <header class="page-head">
+    <button class="page-back" id="subBack" aria-label="返回">
+      <svg viewBox="0 0 20 20"><path d="M12.5 4 6.5 10l6 6" /></svg>
+    </button>
+    <h2 id="subTitle">—</h2>
+  </header>
+  <div class="page-body" id="subBody"></div>
+</div>
+
+<!-- ============================ 登录 ============================ -->
+<div class="page login" id="loginPage" hidden>
+  <header class="page-head">
+    <button class="page-back" id="loginBack" aria-label="返回">
+      <svg viewBox="0 0 20 20"><path d="M12.5 4 6.5 10l6 6" /></svg>
+    </button>
+    <h2 id="loginPageTitle">登录</h2>
+  </header>
+
+  <div class="login-body">
+    <div class="login-brand">
+      <span class="login-logo">AFV</span>
+      <h1 id="loginHeading">登录 ForgeVision</h1>
+      <p id="loginSub">手机号或邮箱都可以，登录只用来区分账户，对话仍然只存在这台设备。</p>
     </div>
-    <div class="modal-body">
-      <section class="set-block" id="setKeyBlock">
-        <label class="set-label" for="setKey">DeepSeek API Key</label>
-        <input class="set-input" id="setKey" type="password" placeholder="sk-…" autocomplete="off" spellcheck="false" />
-        <p class="set-hint" id="setKeyHint">只保存在这台设备。</p>
-      </section>
 
-      <section class="set-block" id="setPwdBlock" hidden>
-        <label class="set-label" for="setPwd">访问密码</label>
-        <input class="set-input" id="setPwd" type="password" placeholder="本机服务的访问密码" autocomplete="off" />
-      </section>
+    <div class="login-tabs" id="loginTabs">
+      <button data-channel="phone" aria-pressed="true">手机号登录</button>
+      <button data-channel="email" aria-pressed="false">邮箱登录</button>
+    </div>
 
-      <section class="set-block">
-        <label class="set-label">模型</label>
-        <div class="seg" id="setModels"></div>
-      </section>
+    <div class="login-form">
+      <div class="field" id="phoneField">
+        <span class="field-prefix">+86</span>
+        <input id="loginPhone" type="tel" inputmode="numeric" maxlength="11" placeholder="请输入手机号" autocomplete="tel" />
+      </div>
+      <div class="field" id="emailField" hidden>
+        <input id="loginEmail" type="email" placeholder="请输入邮箱地址" autocomplete="email" spellcheck="false" />
+      </div>
 
-      <section class="set-block">
-        <label class="set-label">外观</label>
-        <div class="seg" id="setTheme">
-          <button data-theme="light">浅色</button>
-          <button data-theme="dark">深色</button>
-          <button data-theme="auto">跟随系统</button>
-        </div>
-      </section>
+      <div class="field code-field">
+        <input id="loginCode" type="tel" inputmode="numeric" maxlength="6" placeholder="请输入验证码" autocomplete="one-time-code" />
+        <button class="code-btn" id="sendCodeBtn">获取验证码</button>
+      </div>
 
-      <section class="set-block">
-        <label class="set-label">正文字号</label>
-        <input type="range" id="setFont" min="14" max="20" step="1" value="16" />
-      </section>
+      <p class="login-hint" id="loginHint" hidden></p>
 
-      <section class="set-block">
-        <label class="set-label">数据</label>
-        <div class="set-actions">
-          <button class="set-btn" id="exportBtn">导出全部</button>
-          <button class="set-btn" id="importBtn">导入</button>
-          <button class="set-btn danger" id="clearBtn">清空本机对话</button>
-        </div>
-        <p class="set-hint" id="setStoreHint"></p>
-      </section>
+      <label class="agree">
+        <input type="checkbox" id="agreeBox" />
+        <span>我已阅读并同意 <b>《用户协议》</b> 和 <b>《隐私政策》</b></span>
+      </label>
+
+      <button class="primary" id="loginSubmit">登录</button>
+      <p class="login-note">本机演示环境：验证码会直接显示在上方。</p>
     </div>
   </div>
 </div>
 
-<!-- ============================ 解锁 ============================ -->
+<!-- ============================ 服务密码锁 ============================ -->
 <div class="lock" id="lock" hidden>
   <div class="lock-card">
     <div class="lock-logo">AFV</div>
@@ -225,7 +297,51 @@
 </div>
 
 <div class="toast" id="toast" hidden></div>
-<input type="file" id="filePicker" accept=".txt,.md,.json,.csv,.log,.js,.ts,.py,.html,.css" hidden />
+
+<!-- ============================ 更新提示 ============================ -->
+<div class="update-pop" id="updatePop" hidden>
+  <div class="update-mask" id="updateMask"></div>
+  <div class="update-card">
+    <p class="update-title">有更新版本</p>
+    <p class="update-version" id="updateVersion"></p>
+    <button class="update-btn" id="updateGo">更新</button>
+    <button class="update-later" id="updateLater">以后再说</button>
+  </div>
+</div>
+
+<!-- ============================ 语言选择 ============================ -->
+<div class="sheet" id="langSheet" hidden>
+  <div class="sheet-mask" id="langMask"></div>
+  <div class="sheet-card">
+    <div class="sheet-head">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M3 12h18" /><path d="M12 3c2.5 2.6 2.5 15.4 0 18M12 3c-2.5 2.6-2.5 15.4 0 18" /></svg>
+      <span>语言</span>
+    </div>
+    <div class="sheet-list" id="langList"></div>
+    <button class="sheet-confirm" id="langConfirm">确认</button>
+  </div>
+</div>
+
+<input type="file" id="filePicker" hidden />
+
+<!-- 老设备兜底：WebView 内核太旧时 ES module 不会执行，会白屏 -->
+<script>
+  (function () {
+    var m = navigator.userAgent.match(/Chrome\/(\d+)/);
+    var v = m ? parseInt(m[1], 10) : 999;
+    if (v >= 80) return;
+    var box = document.createElement('div');
+    box.style.cssText =
+      'position:fixed;inset:0;z-index:99999;background:#fff;color:#17181c;' +
+      'display:flex;align-items:center;justify-content:center;padding:32px;' +
+      'text-align:center;font:15px/1.8 sans-serif;';
+    box.innerHTML =
+      '<div><p style="font-size:17px;font-weight:600;margin:0 0 12px">WebView 内核太旧</p>' +
+      '<p style="margin:0;opacity:.72">当前内核 Chrome ' + v + '，最低需要 80。<br>' +
+      '请在应用商店更新「Android System WebView」或「Chrome」后再打开。</p></div>';
+    document.body.appendChild(box);
+  })();
+</script>
 
 <script type="module" src="./app.js"></script>
 </body>
