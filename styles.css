@@ -1283,6 +1283,54 @@ textarea.plain-input {
   font-size: 12.5px;
   justify-content: flex-start;
 }
+
+/* 模型选择器：固定 4 行，多出来的滚动 */
+.menu--models {
+  width: 230px;
+  height: calc(40px * 4 + 8px);
+  max-height: none;
+  padding: 4px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.menu--models::-webkit-scrollbar { width: 3px; }
+.menu--models::-webkit-scrollbar-thumb { background: var(--line-strong); }
+.menu--models .menu-item {
+  height: 40px;
+  padding: 0 9px;
+  justify-content: flex-start;
+  gap: 9px;
+  font-size: 13px;
+}
+.menu--models .menu-item > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.menu--models .menu-item em {
+  flex: none;
+  max-width: 76px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.menu-icon {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.15;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.62;
+}
+.menu--models .menu-item.is-active .menu-icon,
+.menu--models .menu-item:hover .menu-icon {
+  opacity: 1;
+}
 .menu-item em {
   font-style: normal;
   font-family: var(--font-mono);

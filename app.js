@@ -9,86 +9,96 @@ import { createServerStore, createLocalStore } from './storage.js';
 const $ = (selector, root = document) => root.querySelector(selector);
 
 /**
- * 模型清单。
- * id       —— 界面上显示的名字（老大认这些）
+ * 模型清单，顺序就是菜单里的顺序。
+ * id       —— 内部标识，会话里存的就是它（改了会丢历史，别动）
+ * label    —— 菜单上显示的名字
  * upstream —— 真正发给 API 的模型名，必须和厂商文档一致
  * baseUrl  —— 该厂商的 OpenAI 兼容网关，用户可以在设置里覆盖
- * 空 baseUrl 表示未接网关，用户必须自己填。
+ * logo     —— 16x16 线框图形，画在名字前面
  */
+const DEEPSEEK_LOGO = '<path d="M8 1.6 14.4 8 8 14.4 1.6 8Z"/><circle cx="8" cy="8" r="2.1"/>';
+
 const MODELS = [
   {
     id: 'deepseek-V4.1-Flash',
+    label: 'Deep-V4.1',
     upstream: 'deepseek-flash',
     baseUrl: 'https://api.deepseek.com',
+    logo: DEEPSEEK_LOGO,
   },
   {
     id: 'deepseek-v4.1-flash-free',
+    label: 'Deep-V4.1.f',
     upstream: 'deepseek-v4.1-flash-free',
     baseUrl: 'https://opencode.ai/inference/openai/v1',
-  },
-  {
-    id: 'Qwen-3.7-Flash',
-    upstream: 'qwen3.7-flash',
-    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-  },
-  {
-    id: 'GPT-5.6 Luna',
-    upstream: 'gpt-5.6-luna',
-    baseUrl: 'https://api.openai.com/v1',
-  },
-  {
-    id: 'GPT-6 Luna',
-    upstream: 'gpt-6-luna',
-    baseUrl: 'https://api.openai.com/v1',
-  },
-  {
-    id: 'Grok 4.5',
-    upstream: 'grok-4-5',
-    baseUrl: 'https://api.x.ai/v1',
-  },
-  {
-    id: 'Grok 4.7',
-    upstream: 'grok-4-7',
-    baseUrl: 'https://api.x.ai/v1',
-  },
-  {
-    id: 'Gemini 2.5 Flash-Lite',
-    upstream: 'gemini-2.5-flash-lite',
-    baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+    logo: DEEPSEEK_LOGO,
   },
   {
     id: 'Gemini 3.5 Flash-Lite',
+    label: 'Gemini-3.5-F-L',
     upstream: 'gemini-3.5-flash-lite',
     baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+    logo: '<path d="M8 1.4 9.7 6.3 14.6 8 9.7 9.7 8 14.6 6.3 9.7 1.4 8 6.3 6.3Z"/>',
   },
   {
-    id: 'Claude Haiku 4.5',
-    upstream: 'claude-haiku-4-5',
-    baseUrl: 'https://api.anthropic.com/v1',
+    id: 'Grok 4.5',
+    label: 'Grok-4.5',
+    upstream: 'grok-4-5',
+    baseUrl: 'https://api.x.ai/v1',
+    logo: '<path d="M2.4 2.4 13.6 13.6M13.6 2.4 2.4 13.6"/>',
   },
   {
-    id: 'GLM-5.3-Flash',
-    upstream: 'glm-5.3-flash',
-    baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
-  },
-  {
-    id: 'Fledge Alpha Free',
-    upstream: 'fledge-alpha-free',
-    baseUrl: '',
+    id: 'GPT-6 Luna',
+    label: 'GPT-6 Luna',
+    upstream: 'gpt-6-luna',
+    baseUrl: 'https://api.openai.com/v1',
+    logo: '<path d="M8 1.5 13.6 4.75v6.5L8 14.5 2.4 11.25v-6.5Z"/>',
   },
   {
     id: 'Hy4 flash',
+    label: 'Hy4 flash',
     upstream: 'hy4-flash-free',
     baseUrl: 'https://opencode.ai/inference/openai/v1',
+    logo: '<path d="M9.6 1.5 3 9h4.4L6.4 14.5 13 7H8.6Z"/>',
+  },
+  {
+    id: 'Qwen-3.7-Flash',
+    label: 'Qwen-3.7-Flash',
+    upstream: 'qwen3.7-flash',
+    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    logo: '<path d="M8 2.4a5.6 5.6 0 1 0 5.6 5.6"/><path d="M8 8l4.2-4.2"/>',
+  },
+  {
+    id: 'GLM-5.3-Flash',
+    label: 'GLM-5.3-Flash',
+    upstream: 'glm-5.3-flash',
+    baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+    logo: '<rect x="2.6" y="2.6" width="10.8" height="10.8"/><path d="M2.6 13.4 13.4 2.6"/>',
+  },
+  {
+    id: 'Claude Haiku 4.5',
+    label: 'Claude Haiku 4.5',
+    upstream: 'claude-haiku-4-5',
+    baseUrl: 'https://api.anthropic.com/v1',
+    logo: '<path d="M8 1.6v12.8M1.6 8h12.8M3.4 3.4l9.2 9.2M12.6 3.4l-9.2 9.2"/>',
   },
   {
     id: 'Inkling 2 Small',
+    label: 'Inkling 2 Small',
     upstream: 'inkling-2-small-free',
     baseUrl: 'https://opencode.ai/inference/openai/v1',
+    logo: '<circle cx="8" cy="8" r="5.6"/><circle cx="8" cy="8" r="1.6"/>',
+  },
+  {
+    id: 'Fledge Alpha Free',
+    label: 'Fledge Alpha Free',
+    upstream: 'fledge-alpha-free',
+    baseUrl: '',
+    logo: '<path d="M8 2 14.2 13H1.8Z"/>',
   },
 ];
 
-const APP_VERSION = '0.2.0-rc.3';
+const APP_VERSION = '0.2.0-rc.4';
 
 const SUB_TITLES = {
   account: '账号',
@@ -1100,11 +1110,14 @@ function closeMenu() {
 function openMenu(anchor, items, onPick, options = {}) {
   closeMenu();
   const menu = document.createElement('div');
-  menu.className = `menu${options.compact ? ' menu--compact' : ''}`;
+  menu.className = `menu${options.compact ? ' menu--compact' : ''}${options.rows ? ' menu--models' : ''}`;
   menu.innerHTML = items
     .map(
       (item) =>
         `<button class="menu-item${item.active ? ' is-active' : ''}${item.danger ? ' is-danger' : ''}" data-value="${escapeHtml(item.value)}">` +
+        (item.icon
+          ? `<svg class="menu-icon" viewBox="0 0 16 16" aria-hidden="true">${item.icon}</svg>`
+          : '') +
         `<span>${escapeHtml(item.label)}</span>` +
         (item.hint ? `<em>${escapeHtml(item.hint)}</em>` : '') +
         `</button>`,
@@ -1402,6 +1415,9 @@ function saveSettings() {
 
 /* ---------------- 用户自己加的提供商（仿 DSH 的添加模型提供商） ---------------- */
 
+/* 用户自己加的模型用这个通用标记 */
+const PROVIDER_LOGO = '<rect x="2.6" y="2.6" width="10.8" height="10.8"/><path d="M8 5.4v5.2M5.4 8h5.2"/>';
+
 const PROVIDER_CATALOG = [
   { id: 'deepseek', name: 'DeepSeek', baseUrl: 'https://api.deepseek.com', protocol: 'openai' },
   { id: 'opencode', name: 'OpenCode Zen', baseUrl: 'https://opencode.ai/inference/openai/v1', protocol: 'openai' },
@@ -1453,12 +1469,18 @@ function findProviderModel(id) {
 }
 
 function allModels() {
-  const list = MODELS.map((m) => ({ id: m.id, label: m.id, group: '' }));
+  const list = MODELS.map((m) => ({
+    id: m.id,
+    label: m.label || m.id,
+    logo: m.logo || '',
+    group: '',
+  }));
   for (const provider of providers()) {
     for (const model of provider.models || []) {
       list.push({
         id: providerModelKey(provider.id, model.id),
         label: model.name || model.id,
+        logo: provider.logo || PROVIDER_LOGO,
         group: provider.name || provider.id,
       });
     }
@@ -1510,7 +1532,7 @@ function modelReady(id) {
 function modelLabel(id) {
   const hit = findProviderModel(id);
   if (hit) return hit.model.name || hit.model.id;
-  return MODELS.find((m) => m.id === id)?.id || id;
+  return MODELS.find((m) => m.id === id)?.label || id;
 }
 
 /**
@@ -1588,13 +1610,20 @@ function setModel(id) {
 function pickModel(anchor) {
   const items = allModels().map((m) => ({
     value: m.id,
-    label: m.group ? `${m.group} · ${m.label}` : m.label,
+    label: m.label,
+    hint: m.group,
+    icon: m.logo,
     active: m.id === currentModel(),
   }));
-  openMenu(anchor, items, (value) => {
-    setModel(value);
-    toast(`模型：${modelLabel(value)}`);
-  });
+  openMenu(
+    anchor,
+    items,
+    (value) => {
+      setModel(value);
+      toast(`模型：${modelLabel(value)}`);
+    },
+    { rows: 4 },
+  );
 }
 
 /* ================================================================== */
@@ -2009,7 +2038,7 @@ const SUB_RENDERERS = {
         return (
           `<div class="model-item" data-id="${escapeHtml(model.id)}">` +
           `<button class="model-head" type="button">` +
-          `<span class="model-name">${escapeHtml(model.id)}</span>` +
+          `<span class="model-name">${escapeHtml(model.label || model.id)}</span>` +
           `<span class="model-dot${ready ? ' on' : ''}"></span>` +
           `<span class="model-edit">编辑</span>` +
           `</button>` +
