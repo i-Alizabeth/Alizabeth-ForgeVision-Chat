@@ -36,6 +36,7 @@
   --page-bg: #f5f6f7;
   --chip-bg: rgba(17, 20, 24, 0.055);
   --bubble: #f2f4f7;
+  --ai-line: #cd7f4f;   /* AI 回复框的深橙色描边，压灰度不刺眼 */
   --code-bg: #f7f8fa;
   --code-head: #eef0f4;
   --shadow-sm: 0 1px 2px rgba(20, 24, 35, 0.05);
@@ -67,6 +68,7 @@ body[data-theme="dark"] {
   --page-bg: #101114;
   --chip-bg: rgba(255, 255, 255, 0.08);
   --bubble: #23252b;
+  --ai-line: #8f5730;   /* 深色底上再用亮一点的橙，才看得出来 */
   --code-bg: #101216;
   --code-head: #181a1f;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
@@ -310,6 +312,7 @@ a { color: var(--blue-ink); }
   white-space: nowrap;
   font-size: 13px;
 }
+.sb-item[aria-current="true"] .sb-item-title { padding-right: 24px; }
 
 .sb-item.is-selected { background: var(--sel-bg); }
 .sb-check {
@@ -345,22 +348,20 @@ a { color: var(--blue-ink); }
   color: var(--muted-2);
   flex: none;
 }
-.sb-item-del {
+.sb-item-more {
   position: absolute;
   right: 4px;
   top: 50%;
   transform: translateY(-50%);
-  width: 24px; height: 24px;
-  display: none;
+  width: 26px;
+  height: 26px;
+  display: grid;
   place-items: center;
   color: var(--muted);
-  background: var(--sidebar);
-  border: 1px solid var(--line);
+  background: transparent;
 }
-.sb-item:hover .sb-item-del { display: grid; }
-.sb-item:hover .sb-item-time { visibility: hidden; }
-.sb-item-del:hover { color: var(--red); border-color: var(--red); }
-.sb-item-del svg { width: 11px; height: 11px; }
+.sb-item-more:hover { color: var(--ink); }
+.sb-item-more svg { width: 16px; height: 16px; fill: currentColor; stroke: none; }
 
 .sb-empty { padding: 4px 16px; font-size: 12px; color: var(--muted-2); }
 
@@ -436,7 +437,22 @@ a { color: var(--blue-ink); }
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 46vw;
+  max-width: 40vw;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+/* 顶栏里对话名右边那个淡一档的模型名 */
+.tb-model {
+  flex: none;
+  max-width: 30vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--muted-2);
+  letter-spacing: 0.02em;
+  padding-left: 2px;
 }
 
 .tb-actions { margin-left: auto; display: flex; align-items: center; gap: 2px; }
@@ -533,7 +549,7 @@ a { color: var(--blue-ink); }
 /* ---------------------------- 消息流 ---------------------------- */
 
 .flow {
-  max-width: 760px;
+  max-width: 700px;
   margin: 0 auto;
   padding: 8px 0 32px;
   display: flex;
@@ -542,6 +558,16 @@ a { color: var(--blue-ink); }
 }
 
 .msg { display: flex; flex-direction: column; gap: 8px; }
+
+/* 内容丢了的老对话：给一行说明，不留白屏 */
+.lost-note {
+  border: 1px dashed var(--line);
+  padding: 14px 16px;
+  color: var(--ink-2, #6b7280);
+  font-size: 13px;
+  line-height: 1.7;
+  text-align: center;
+}
 
 .msg-user { align-items: flex-end; }
 .msg-user .bubble {
@@ -554,25 +580,44 @@ a { color: var(--blue-ink); }
   line-height: 1.7;
   white-space: pre-wrap;
   word-break: break-word;
+  /* 长按交给自己的菜单，别弹系统的选择框 */
+  -webkit-touch-callout: none;
+  user-select: none;
 }
 
-.msg-ai { align-items: stretch; }
+.msg-ai {
+  align-items: stretch;
+  gap: 10px;
+}
+
+/* 带底色的对话卡片只属于 Orca Link 皮肤（OS / 深海都是素面） */
+body[data-theme="light"][data-skin="orca"] .msg-ai {
+  background: var(--ai-surface);
+  border: 1px solid var(--ai-line);
+  padding: 13px 15px 9px;
+}
 .msg-ai .who {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-family: var(--font-mono);
-  font-size: 9px;
-  letter-spacing: 0.22em;
-  color: var(--muted-2);
-  text-transform: uppercase;
+  gap: 7px;
+  font-size: 11.5px;
+  letter-spacing: 0.01em;
+  color: var(--muted);
 }
-.msg-ai .who .mark {
-  width: 20px; height: 20px;
+.msg-ai .who .who-logo {
+  width: 15px;
+  height: 15px;
+  display: block;
+  flex: none;
+}
+.msg-ai .who .who-logo.is-mono { filter: none; }
+body[data-theme="dark"] .msg-ai .who .who-logo.is-mono { filter: invert(1); }
+.msg-ai .who .who-mark {
+  width: 15px; height: 15px;
   display: grid; place-items: center;
   background: var(--ink);
   color: var(--bg);
-  font-size: 8px;
+  font-size: 7px;
   letter-spacing: 0;
   font-family: "Arial Black", var(--font-ui);
   font-weight: 900;
@@ -666,23 +711,28 @@ a { color: var(--blue-ink); }
 
 .msg-actions {
   display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 2px;
-  opacity: 0;
-  transition: opacity 0.15s;
+  opacity: 1;            /* 一直显示，不再靠悬停 */
   margin-top: 2px;
+  margin-left: -6px;     /* 复制往左挪一点，贴齐正文 */
 }
-.msg:hover .msg-actions, .msg:focus-within .msg-actions { opacity: 1; }
+body[data-theme="light"][data-skin="orca"] .msg-actions { margin-left: -13px; }
+.msg-actions [data-regen] { margin-left: auto; }
+body[data-theme="light"][data-skin="orca"] .msg-actions [data-regen] { margin-right: -11px; }
 .msg-act {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 5px;
-  padding: 4px 8px;
+  padding: 6px 8px;
   border: 1px solid transparent;
   font-size: 11.5px;
   color: var(--muted);
 }
 .msg-act:hover { color: var(--ink); border-color: var(--line); }
-.msg-act svg { width: 12px; height: 12px; }
+.msg-act svg { width: 16px; height: 16px; }
 
 .thinking { display: inline-flex; gap: 4px; align-items: center; height: 22px; }
 .thinking i {
@@ -760,6 +810,32 @@ a { color: var(--blue-ink); }
   padding: 4px 10px 9px 12px;
 }
 .ct-left, .ct-right { display: flex; align-items: center; gap: 4px; }
+
+/* 修改输入：输入框顶上那一条「修改输入 ×」 */
+.composer-edit {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px 8px 0 18px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 8px;
+}
+.composer-edit[hidden] { display: none; }
+.ce-title {
+  font-size: 12.5px;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+.ce-close {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  border: 1px solid transparent;
+}
+.ce-close:hover { color: var(--ink); border-color: var(--line); }
+.ce-close svg { width: 15px; height: 15px; }
 
 .tool-btn {
   height: 30px;
@@ -1819,42 +1895,29 @@ body[data-sidebar="collapsed"] .main { inset: 0; }
 
 /* ============================ 皮肤配色 ============================ */
 
-body[data-theme="light"][data-skin="mist"] {
-  --bg: #ffffff;
-  --bg-soft: #f4f6f7;
-  --sidebar: #f8f9fa;
-  --card: #eef1f3;
-  --card-2: #ffffff;
-  --ink: #262c33;
-  --ink-2: #4c565f;
-  --muted: #8b949c;
-  --muted-2: #a7afb6;
-  --line: #e5e8ea;
-  --line-strong: #d3d8db;
-  --sel-bg: #eef0f2;
-  --blue: #5b7083;
-  --blue-ink: #405364;
-  --blue-wash: rgba(91, 112, 131, 0.09);
-}
-
-body[data-theme="light"][data-skin="paper"] {
-  --bg: #fbf8f2;
-  --bg-soft: #f5f0e7;
-  --sidebar: #f8f4ec;
-  --card: #f1eadf;
-  --card-2: #fdfaf5;
-  --ink: #2b2620;
-  --ink-2: #5a5045;
-  --muted: #93887a;
-  --muted-2: #b0a696;
-  --line: #e7dfd1;
-  --line-strong: #d6cbb8;
-  --sel-bg: #f1ece2;
-  --blue: #a2653a;
-  --blue-ink: #8a5230;
-  --blue-wash: rgba(162, 101, 58, 0.09);
-  --code-bg: #f6f1e8;
+/* Orca Link：配色照 DSH 那套皮肤（#f6f1e7 纸底 / #11151b 墨 / #086cff 强调） */
+body[data-theme="light"][data-skin="orca"] {
+  --bg: #f6f1e7;
+  --bg-soft: #f1ebe0;
+  --sidebar: #f8f3e9;
+  --card: #efe8db;
+  --card-2: #fffcf6;
+  --ink: #11151b;
+  --ink-2: #343b47;
+  --muted: #778399;
+  --muted-2: #9aa3b2;
+  --line: rgba(43, 55, 72, 0.14);
+  --line-strong: rgba(43, 55, 72, 0.24);
+  --sel-bg: #efe9dd;
+  --blue: #086cff;
+  --blue-ink: #0a5bd6;
+  --blue-wash: rgba(8, 108, 255, 0.08);
+  --bubble: #f1ebdf;
+  --code-bg: #f7f2e8;
   --code-head: #efe8db;
+  --ai-surface: #fbf7ef;   /* AI 对话框的纸面底 */
+  --ai-line: #cd7f4f;      /* 深橙描边 */
+  --page-bg: #efe9dd;
 }
 
 body[data-theme="light"][data-skin="ocean"] {
@@ -2089,3 +2152,65 @@ body[data-theme="dark"] .model-test-out.ok {
   color: var(--red);
   background: var(--red-wash);
 }
+
+/* ============================ 重命名弹窗 ============================ */
+
+.modal-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(17, 20, 24, 0.32);
+}
+.modal-layer[hidden] { display: none; }
+
+.modal {
+  width: 100%;
+  max-width: 320px;
+  background: var(--bg);
+  border: 1px solid var(--line-strong);
+  box-shadow: var(--shadow-lg);
+}
+
+.modal-title {
+  margin: 0;
+  padding: 20px 20px 14px;
+  font-size: 15px;
+  font-weight: 600;
+  text-align: center;
+  color: var(--ink);
+  letter-spacing: 0.02em;
+}
+
+.modal-input {
+  display: block;
+  width: calc(100% - 36px);
+  margin: 0 18px 18px;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  font-size: 14px;
+  outline: 0;
+}
+.modal-input:focus { border-color: var(--line-strong); background: var(--bg); }
+
+.modal-actions {
+  display: flex;
+  border-top: 1px solid var(--line);
+}
+.modal-actions button {
+  flex: 1;
+  height: 46px;
+  font-size: 14.5px;
+  color: var(--ink-2);
+  background: transparent;
+}
+.modal-actions button + button {
+  border-left: 1px solid var(--line);
+  color: var(--ink);
+  font-weight: 600;
+}
+.modal-actions button:active { background: var(--bg-soft); }

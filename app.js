@@ -101,7 +101,7 @@ const MODELS = [
   },
 ];
 
-const APP_VERSION = '0.1.0-rc.1';
+const APP_VERSION = '0.1.0-rc.2';
 
 const SUB_TITLES = {
   account: '账号',
@@ -120,11 +120,12 @@ const SUB_TITLES = {
 const THEME_LABELS = { light: '浅色', dark: '深色', auto: '跟随系统' };
 
 const SKINS = [
-  { id: 'default', name: '默认', colors: ['#ffffff', '#1d2126', '#4d6bfe'] },
-  { id: 'mist', name: '雾灰', colors: ['#f8f9fa', '#262c33', '#5b7083'] },
-  { id: 'paper', name: '暖纸', colors: ['#fbf8f2', '#2b2620', '#a2653a'] },
+  // 配色取自 Orca Link 皮肤（#f6f1e7 底 / #11151b 墨 / #086cff 强调）
+  { id: 'orca', name: 'Orca Link', colors: ['#f6f1e7', '#11151b', '#086cff'] },
   { id: 'ocean', name: '深海', colors: ['#f4f8fb', '#16262f', '#2f6f8f'] },
 ];
+
+const OS_SKIN = 'os';
 
 const UPDATE_REPO = 'i-Alizabeth/Alizabeth-ForgeVision-Chat';
 
@@ -175,10 +176,12 @@ const state = {
   convs: [],
   cache: new Map(),
   current: null,
+  openSeq: 0,
   sending: false,
   abort: null,
   filter: '',
   pickerMode: 'attach',
+  editing: null,
   menu: null,
   typewriter: null,
   selectMode: false,
@@ -200,10 +203,7 @@ async function boot() {
   syncModelLabels();
   syncSearchButton();
 
-  if (state.mode === 'server' && state.config.authRequired && !state.token) {
-    showLock();
-    return;
-  }
+  // 访问密码已经去掉，打开就是主界面
   await enterApp();
   setTimeout(() => checkForUpdate(false), 1200);
 }
@@ -314,19 +314,18 @@ function convRowHtml(conv) {
   const active = state.current && state.current.id === conv.id;
   const selected = state.selectMode && state.selected.has(conv.id);
   const check = state.selectMode ? `<span class="sb-check"></span>` : '';
-  const time = state.selectMode
+  // 右侧：当前对话挂三个点，其余什么都不挂（不再显示时间）
+  const more = state.selectMode
     ? ''
-    : `<span class="sb-item-time">${timeLabel(conv.updatedAt || conv.createdAt || Date.now())}</span>`;
-  const del = state.selectMode
-    ? ''
-    : `<button class="sb-item-del" data-del="${conv.id}" title="删除对话" aria-label="删除对话">` +
-      `<svg viewBox="0 0 16 16"><path d="m4 4 8 8M12 4l-8 8"/></svg></button>`;
+    : active
+      ? `<button class="sb-item-more" data-more="${conv.id}" title="更多" aria-label="更多">` +
+        `<svg viewBox="0 0 16 16"><circle cx="3" cy="8" r="1.1" /><circle cx="8" cy="8" r="1.1" /><circle cx="13" cy="8" r="1.1" /></svg></button>`
+      : '';
   return (
-    `<div class="sb-item${selected ? ' is-selected' : ''}" role="button" tabindex="0" data-id="${conv.id}" aria-current="${active}">` +
+    `<div class="sb-item${selected ? ' is-selected' : ''}${active ? ' is-active' : ''}" role="button" tabindex="0" data-id="${conv.id}" aria-current="${active}">` +
     check +
     `<span class="sb-item-title">${escapeHtml(conv.title || '未命名对话')}</span>` +
-    time +
-    del +
+    more +
     `</div>`
   );
 }
@@ -465,11 +464,29 @@ function newChat(focus = false) {
   if (focus) setTimeout(() => $('#input').focus(), 40);
 }
 
+/**
+ * 列表里拿到的只是摘要（没有 messages），想改动会话必须先取回完整对象，
+ * 否则一保存就会把 messages 覆盖成空——历史对话变空白的元凶。
+ */
+async function fullConversation(id) {
+  let conv = state.cache.get(id) || null;
+  if (!conv || !Array.isArray(conv.messages)) {
+    try {
+      conv = await state.store.get(id);
+    } catch {
+      conv = null;
+    }
+    if (conv) state.cache.set(id, conv);
+  }
+  return conv;
+}
+
 async function openConversation(id) {
   if (state.sending) stopStreaming();
   closeDrawer();
+  const seq = ++state.openSeq;
   let conv = state.cache.get(id) || null;
-  if (!conv) {
+  if (!conv || !Array.isArray(conv.messages)) {
     try {
       conv = await state.store.get(id);
     } catch (err) {
@@ -477,6 +494,7 @@ async function openConversation(id) {
       return;
     }
   }
+  if (seq !== state.openSeq) return; // 连点时以最后一次为准，别把旧对话画回来
   if (!conv) {
     toast('这个对话不存在了');
     return;
@@ -485,25 +503,49 @@ async function openConversation(id) {
   state.current = conv;
   $('#chatTitle').textContent = conv.title || '未命名对话';
   renderMessages();
+  if (!Array.isArray(conv.messages) || !conv.messages.length) showLostNotice();
   showHero(false);
   renderList();
   syncModelLabels();
 }
 
-function messageNode(message, streaming = false) {
+/* 老版本置顶/重命名会把内容写没；遇到了给个说明，别让人对着空白发呆 */
+function showLostNotice() {
+  const note = document.createElement('div');
+  note.className = 'lost-note';
+  note.textContent = '这段对话的内容在上一次保存时丢了，只剩标题。';
+  $('#flow').appendChild(note);
+}
+
+/* 某条回复是谁说的：拿模型 id 换 logo 和名字 */
+function modelProfile(id) {
+  const found = allModels().find((m) => m.id === id);
+  if (found) return found;
+  return { id, label: modelLabel(id), logo: '', mono: false };
+}
+
+function messageNode(message, streaming = false, last = false) {
   const article = document.createElement('article');
   if (message.role === 'user') {
     article.className = 'msg msg-user';
+    article.dataset.id = message.id;
     article.innerHTML = `<div class="bubble">${escapeHtml(message.content).replace(/\n/g, '<br />')}</div>`;
     return article;
   }
+  const profile = modelProfile(message.model || state.current?.model || state.settings.model);
+  const face = profile.logo
+    ? `<img class="who-logo${profile.mono ? ' is-mono' : ''}" src="${escapeHtml(profile.logo)}" alt="" />`
+    : `<span class="who-mark">AFV</span>`;
   article.className = 'msg msg-ai';
   article.dataset.id = message.id;
   article.innerHTML =
-    `<div class="who"><span class="mark">AFV</span>FORGEVISION</div>` +
+    `<div class="who">${face}<span class="who-name">${escapeHtml(profile.label || 'AFV')}</span></div>` +
     `<div class="md"></div>` +
     `<div class="msg-actions">` +
-    `<button class="msg-act" data-copy title="复制"><svg viewBox="0 0 16 16"><rect x="5" y="5" width="8" height="8"/><path d="M3 11V3h8"/></svg>复制</button>` +
+    `<button class="msg-act" data-copy title="复制" aria-label="复制"><svg viewBox="0 0 16 16"><rect x="5" y="5" width="8" height="8"/><path d="M3 11V3h8"/></svg></button>` +
+    (last
+      ? `<button class="msg-act" data-regen title="重新生成" aria-label="重新生成"><svg viewBox="0 0 16 16"><path d="M13 8a5 5 0 1 1-1.6-3.7"/><path d="M13 3v3h-3"/></svg></button>`
+      : '') +
     `</div>`;
   const body = $('.md', article);
   if (streaming) {
@@ -517,14 +559,26 @@ function messageNode(message, streaming = false) {
 function renderMessages() {
   const flow = $('#flow');
   flow.innerHTML = '';
-  for (const message of state.current.messages) {
-    flow.appendChild(messageNode(message));
+  const messages = Array.isArray(state.current?.messages) ? state.current.messages : [];
+  let lastAi = -1;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index].role === 'assistant' && String(messages[index].content || '').trim()) {
+      lastAi = index;
+      break;
+    }
   }
+  messages.forEach((message, index) => {
+    flow.appendChild(messageNode(message, false, index === lastAi));
+  });
   scrollToBottom(true);
 }
 
 function appendMessage(message, streaming = false) {
-  const node = messageNode(message, streaming);
+  // 「重新生成」只挂在最后一条回复上
+  if (message.role !== 'user') {
+    $('#flow').querySelectorAll('.msg-ai [data-regen]').forEach((button) => button.remove());
+  }
+  const node = messageNode(message, streaming, message.role === 'assistant');
   $('#flow').appendChild(node);
   return node;
 }
@@ -567,12 +621,18 @@ async function sendMessage() {
     return;
   }
 
+  if (state.editing) {
+    await submitEdit(text);
+    return;
+  }
+
   if (!state.current) newChat();
   const conv = state.current;
   const userMessage = { id: uid(), role: 'user', content: text, createdAt: Date.now() };
   conv.messages.push(userMessage);
   if (!conv.title || conv.title === '新对话') {
     conv.title = makeTitle(text);
+    autoTitlePending.add(conv.id); // 回复完再让模型自己起个短名字
     $('#chatTitle').textContent = conv.title;
   }
 
@@ -592,9 +652,121 @@ function makeTitle(text) {
   return clean.length > 26 ? `${clean.slice(0, 26)}…` : clean || '新对话';
 }
 
+/* ---------------- 改自己发的那句 ---------------- */
+
+function startEdit(messageId) {
+  const conv = state.current;
+  if (!conv || !Array.isArray(conv.messages)) return;
+  const message = conv.messages.find((m) => m.id === messageId && m.role === 'user');
+  if (!message) return;
+  if (state.editing && state.editing.id !== messageId) cancelEdit();
+  if (!state.editing) state.editing = { id: messageId, draft: $('#input').value };
+  const input = $('#input');
+  input.value = message.content;
+  $('#editHead').hidden = false;
+  autoGrow();
+  updateSendState();
+  input.focus();
+  input.setSelectionRange(input.value.length, input.value.length);
+}
+
+function cancelEdit() {
+  if (!state.editing) return;
+  const draft = state.editing.draft || '';
+  state.editing = null;
+  $('#editHead').hidden = true;
+  $('#input').value = draft;
+  autoGrow();
+  updateSendState();
+}
+
+/* 改完发出去：这句之后的全作废，重新生成回答 */
+async function submitEdit(text) {
+  const conv = state.current;
+  const editing = state.editing;
+  if (!conv || !editing || !Array.isArray(conv.messages)) return;
+  const index = conv.messages.findIndex((m) => m.id === editing.id);
+  if (index < 0) {
+    cancelEdit();
+    return;
+  }
+  const original = conv.messages[index];
+  conv.messages = conv.messages.slice(0, index);
+  conv.messages.push({ ...original, content: text, updatedAt: Date.now() });
+  state.editing = null;
+  $('#editHead').hidden = true;
+  $('#input').value = '';
+  autoGrow();
+  updateSendState();
+  renderMessages();
+  showHero(false);
+  await persist(conv, false);
+  await reply(conv);
+}
+
+/* ---------------- 让模型自己起名字（不超过 10 个字） ---------------- */
+
+const autoTitlePending = new Set();
+const titleLocked = new Set(); // 手动改过名的，模型就别再插手
+const TITLE_SYSTEM =
+  '你是标题助手。用不超过 10 个汉字概括下面这段对话，只输出标题本身：不要引号、不要标点、不要解释、不要换行。';
+
+function cleanTitle(raw) {
+  const firstLine =
+    String(raw || '')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)[0] || '';
+  let text = firstLine
+    .replace(/\*\*/g, '')
+    .replace(/^[#>*\-·\s]+/, '')
+    .replace(/^标题[:：]\s*/, '')
+    .replace(/^["'「『《【]+|["'」』》】]+$/g, '')
+    .replace(/[。！？!?，,、；;：:.\s]+$/, '')
+    .trim();
+  if (text.length > 10) text = text.slice(0, 10).replace(/[。！？!?，,、；;：:.\s]+$/, '');
+  return text;
+}
+
+async function autoTitle(conv) {
+  if (!modelReady(conv.model)) return;
+  const first = String(conv.messages.find((m) => m.role === 'user')?.content || '').slice(0, 600);
+  const answer = String(
+    conv.messages.filter((m) => m.role === 'assistant').pop()?.content || '',
+  ).slice(0, 600);
+  if (!first) return;
+  const before = conv.title;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 25000);
+  let raw = '';
+  try {
+    await streamReply(
+      [
+        { role: 'system', content: TITLE_SYSTEM },
+        { role: 'user', content: `用户：${first}\n助手：${answer}` },
+      ],
+      conv.model,
+      (delta) => {
+        raw += delta;
+      },
+      controller.signal,
+    );
+  } catch {
+    return;
+  } finally {
+    clearTimeout(timer);
+  }
+  const title = cleanTitle(raw);
+  if (titleLocked.has(conv.id)) return;
+  if (!title || conv.title !== before) return; // 中途被手动改名就尊重手动
+  conv.title = title;
+  if (state.current?.id === conv.id) $('#chatTitle').textContent = title;
+  await persist(conv);
+}
+
 async function reply(conv) {
   const payload = buildPayload(conv.messages);
-  const assistant = { id: uid(), role: 'assistant', content: '', createdAt: Date.now() };
+  const assistant = { id: uid(), role: 'assistant', content: '', model: conv.model, createdAt: Date.now() };
   conv.messages.push(assistant);
 
   const node = appendMessage(assistant, true);
@@ -661,12 +833,12 @@ async function reply(conv) {
     }
 
     body.innerHTML = renderMarkdown(text);
-    node.querySelector('.msg-actions')?.insertAdjacentHTML(
-      'beforeend',
-      `<button class="msg-act" data-regen title="重新生成"><svg viewBox="0 0 16 16"><path d="M13 8a5 5 0 1 1-1.6-3.7"/><path d="M13 3v3h-3"/></svg>重新生成</button>`,
-    );
     await persist(conv);
     maybeScroll();
+    if (autoTitlePending.has(conv.id)) {
+      autoTitlePending.delete(conv.id);
+      autoTitle(conv);
+    }
   }
 }
 
@@ -965,6 +1137,11 @@ function stopStreaming() {
 }
 
 async function persist(conv, refresh = true) {
+  if (!conv || !Array.isArray(conv.messages)) {
+    // 宁可这一下不存，也不能把已有内容覆盖成空
+    console.warn('persist: 会话数据不完整，已跳过', conv && conv.id);
+    return;
+  }
   try {
     conv.updatedAt = Date.now();
     await state.store.save(conv);
@@ -1186,9 +1363,9 @@ function toast(text) {
   }, 2400);
 }
 
+/* 访问密码已经去掉：这个函数留个空壳，别让老的错误分支把人锁在外面 */
 function showLock() {
-  $('#lock').hidden = false;
-  setTimeout(() => $('#lockInput').focus(), 50);
+  /* 不再弹任何锁屏 */
 }
 
 /* ================================================================== */
@@ -1268,8 +1445,9 @@ async function checkForUpdate(manual = false) {
 /* 对话菜单 / 多选                                                      */
 /* ================================================================== */
 
-function openConvMenu(anchor, id, point) {
-  const conv = state.convs.find((item) => item.id === id) || state.cache.get(id);
+async function openConvMenu(anchor, id, point) {
+  // 必须拿完整会话：列表里的摘要没有 messages，直接拿去保存会把内容清空
+  const conv = await fullConversation(id);
   if (!conv) return;
   openMenu(
     anchor,
@@ -1285,20 +1463,92 @@ function openConvMenu(anchor, id, point) {
   );
 }
 
+/* 用户自己发的那句话：长按菜单（复制 / 选择文本 / 修改） */
+function openUserMenu(anchor, messageId, point) {
+  const message = state.current?.messages?.find((m) => m.id === messageId);
+  if (!message) return;
+  openMenu(
+    anchor,
+    [
+      { value: 'copy', label: '复制' },
+      { value: 'select', label: '选择文本' },
+      { value: 'edit', label: '修改' },
+    ],
+    (value) => {
+      if (value === 'copy') {
+        navigator.clipboard
+          ?.writeText(message.content)
+          .then(() => toast('已复制'))
+          .catch(() => toast('复制失败'));
+      } else if (value === 'select') {
+        const bubble = $(`.msg-user[data-id="${messageId}"] .bubble`);
+        if (!bubble) return;
+        const range = document.createRange();
+        range.selectNodeContents(bubble);
+        const selection = window.getSelection();
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+      } else if (value === 'edit') {
+        startEdit(messageId);
+      }
+    },
+    { compact: true, point },
+  );
+}
+
+/* 重命名对话弹窗（图三那个样子，直角版） */
+function openRenameDialog(currentName, onConfirm) {
+  const layer = $('#renameLayer');
+  const input = $('#renameInput');
+  if (!layer || !input) return;
+  input.value = currentName || '';
+  layer.hidden = false;
+  const close = () => {
+    layer.hidden = true;
+    $('#renameOk').onclick = null;
+    $('#renameCancel').onclick = null;
+    input.onkeydown = null;
+    layer.onclick = null;
+  };
+  const confirm = () => {
+    const name = input.value.trim();
+    close();
+    onConfirm(name);
+  };
+  $('#renameOk').onclick = confirm;
+  $('#renameCancel').onclick = close;
+  input.onkeydown = (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      confirm();
+    }
+  };
+  layer.onclick = (event) => {
+    if (event.target === layer) close();
+  };
+  setTimeout(() => {
+    input.focus();
+    input.select();
+  }, 30);
+}
+
 async function handleConvAction(value, conv) {
-  if (value === 'pin') {
-    conv.pinned = !conv.pinned;
-    state.cache.set(conv.id, conv);
-    await persist(conv);
-    toast(conv.pinned ? '已置顶' : '已取消置顶');
+  if (value === 'pin') {    const full = await fullConversation(conv.id);
+    if (!full) return;
+    full.pinned = !full.pinned;
+    await persist(full);
+    toast(full.pinned ? '已置顶' : '已取消置顶');
     return;
   }
   if (value === 'rename') {
-    const name = prompt('新的名字', conv.title || '');
-    if (name === null) return;
-    conv.title = name.trim() || '新对话';
-    if (state.current?.id === conv.id) $('#chatTitle').textContent = conv.title;
-    await persist(conv);
+    const full = await fullConversation(conv.id);
+    if (!full) return;
+    openRenameDialog(full.title || '', async (name) => {
+      full.title = name || '新对话';
+      titleLocked.add(full.id);
+      if (state.current?.id === full.id) $('#chatTitle').textContent = full.title;
+      await persist(full);
+    });
     return;
   }
   if (value === 'select') {
@@ -1409,9 +1659,16 @@ function syncNativeChrome(dark) {
   } catch {}
 }
 
+function skinId() {
+  const raw = state.settings.skin || OS_SKIN;
+  if (raw === 'paper') return 'orca';
+  if (SKINS.some((item) => item.id === raw)) return raw;
+  return OS_SKIN;
+}
+
 function applySkin() {
-  const id = state.settings.skin || 'default';
-  if (id === 'default') delete document.body.dataset.skin;
+  const id = skinId();
+  if (id === OS_SKIN) delete document.body.dataset.skin;
   else document.body.dataset.skin = id;
 }
 
@@ -1611,6 +1868,8 @@ function syncModelLabels() {
   const id = currentModel();
   $('#sbModel').textContent = modelLabel(id);
   $('#setModelValue').textContent = modelLabel(state.settings.model);
+  const top = $('#chatModel');
+  if (top) top.textContent = modelLabel(id);
 }
 
 function setModel(id) {
@@ -2202,7 +2461,8 @@ const SUB_RENDERERS = {
 
   appearance(body) {
     const theme = state.settings.theme || 'light';
-    const skin = state.settings.skin || 'default';
+    const skin = skinId();
+    const isOs = skin === OS_SKIN;
     const downloaded = Array.isArray(state.downloadedSkins) ? state.downloadedSkins : [];
     const dlBlock = downloaded.length
       ? `<div class="skin-dl-list">` +
@@ -2220,7 +2480,7 @@ const SUB_RENDERERS = {
 
     body.innerHTML =
       `<div class="ap-top">` +
-      `<button class="ap-sys${theme === 'auto' ? ' is-on' : ''}" data-ap-theme="auto">系统</button>` +
+      `<button class="ap-sys${isOs ? ' is-on' : ''}" data-ap-os="1">OS</button>` +
       `<div class="ap-mode">` +
       `<button data-ap-theme="light" class="${theme === 'light' ? 'is-on' : ''}">浅色</button>` +
       `<button data-ap-theme="dark" class="${theme === 'dark' ? 'is-on' : ''}">深色</button>` +
@@ -2241,6 +2501,15 @@ const SUB_RENDERERS = {
       `<div class="ap-hr"></div>` +
       `<button class="ap-link" data-open-sub="skins"><span class="set-label">下载更多皮肤</span><span class="chev">›</span></button>`;
 
+    body.querySelector('[data-ap-os]')?.addEventListener('click', () => {
+      // OS = 系统默认外观：清掉皮肤、主题跟随系统
+      state.settings.skin = OS_SKIN;
+      state.settings.theme = 'auto';
+      saveSettings();
+      applySkin();
+      applyTheme();
+      openSub('appearance');
+    });
     body.querySelectorAll('[data-ap-theme]').forEach((button) => {
       button.addEventListener('click', () => {
         state.settings.theme = button.dataset.apTheme;
@@ -2622,6 +2891,68 @@ function maybeScroll() {
 }
 
 /* ================================================================== */
+/* 附件                                                                */
+/* ================================================================== */
+
+const ATTACH_MAX_BYTES = 400 * 1024;
+const ATTACH_MAX_CHARS = 20000;
+const BINARY_NAME =
+  /\.(pdf|docx?|xlsx?|pptx?|zip|rar|7z|tgz|tar|apk|ipa|png|jpe?g|gif|webp|bmp|heic|tiff?|psd|mp3|wav|flac|m4a|mp4|mov|avi|mkv|exe|dll|so|dylib|bin|class|jar|ttf|otf|woff2?|eot)$/i;
+
+/* 一眼看出是不是二进制：文件头里的 NUL 和控制字符骗不了人 */
+function looksBinary(bytes) {
+  const limit = Math.min(bytes.length, 8000);
+  let control = 0;
+  for (let index = 0; index < limit; index += 1) {
+    const byte = bytes[index];
+    if (byte === 0) return true;
+    if (byte < 9 || (byte > 13 && byte < 32)) control += 1;
+  }
+  return control > limit * 0.05;
+}
+
+/**
+ * 按 BOM → UTF-8 → GB18030 的顺序解。
+ * 手机上传来的 txt 十有八九是 Windows 记事本存的 GBK，
+ * 直接 UTF-8 硬解就是满屏乱码——这就是往输入框里贴乱码的原因。
+ */
+function decodeBytes(bytes) {
+  const decoder = (label, view = bytes) => new TextDecoder(label).decode(view);
+  if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) return decoder('utf-8', bytes.subarray(3));
+  if (bytes[0] === 0xff && bytes[1] === 0xfe) return decoder('utf-16le', bytes.subarray(2));
+  if (bytes[0] === 0xfe && bytes[1] === 0xff) return decoder('utf-16be', bytes.subarray(2));
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    /* 不是 UTF-8，接着试中文老编码 */
+  }
+  try {
+    return decoder('gb18030'); // GBK / GB2312 都归它管
+  } catch {
+    return decoder('utf-8');
+  }
+}
+
+async function readTextFile(file) {
+  if (BINARY_NAME.test(file.name || '')) {
+    return { error: '这个不是纯文本文件，贴进来只会是乱码' };
+  }
+  if (file.size > ATTACH_MAX_BYTES) {
+    return { error: '文件太大了，挑 400KB 以内的文本' };
+  }
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  if (looksBinary(bytes)) {
+    return { error: '这个不是纯文本文件，贴进来只会是乱码' };
+  }
+  const text = decodeBytes(bytes).replace(/\u0000/g, '').replace(/\r\n?/g, '\n');
+  const broken = (text.match(/\uFFFD/g) || []).length;
+  if (text && broken > text.length * 0.02) {
+    return { error: '这个文件编码认不出来，另存为 UTF-8 再试' };
+  }
+  return { text };
+}
+
+/* ================================================================== */
 /* 事件                                                                */
 /* ================================================================== */
 
@@ -2655,8 +2986,67 @@ function bindUI() {
     }
 
     const regenButton = event.target.closest('[data-regen]');
-    if (regenButton && state.current && !state.sending) regenerate();
+    if (regenButton && state.current && !state.sending) {
+      regenerate(regenButton.closest('.msg')?.dataset.id);
+    }
   });
+
+  // 手机上复制正文得长按选词；双击直接选中整段，等于替长按
+  $('#flow').addEventListener('dblclick', (event) => {
+    const md = event.target.closest('.md');
+    if (!md || event.target.closest('a, button, pre')) return;
+    const block =
+      event.target.closest('p, li, h1, h2, h3, h4, h5, h6, td, th, blockquote') || md;
+    const range = document.createRange();
+    range.selectNodeContents(block);
+    const selection = window.getSelection();
+    if (!selection) return;
+    selection.removeAllRanges();
+    selection.addRange(range);
+    event.preventDefault();
+  });
+
+  // 用户自己那句话：长按弹菜单、点一下直接改
+  let userPressTimer = 0;
+  let userPressSuppress = false;
+  $('#flow').addEventListener(
+    'touchstart',
+    (event) => {
+      const bubble = event.target.closest('.msg-user .bubble');
+      if (!bubble) return;
+      const touch = event.touches?.[0];
+      const point = touch ? { x: touch.clientX, y: touch.clientY } : null;
+      clearTimeout(userPressTimer);
+      userPressTimer = setTimeout(() => {
+        userPressSuppress = true;
+        setTimeout(() => {
+          userPressSuppress = false;
+        }, 500);
+        openUserMenu(bubble, bubble.closest('.msg')?.dataset.id, point);
+      }, 480);
+    },
+    { passive: true },
+  );
+  ['touchend', 'touchmove', 'touchcancel'].forEach((type) => {
+    $('#flow').addEventListener(type, () => clearTimeout(userPressTimer), { passive: true });
+  });
+  $('#flow').addEventListener('contextmenu', (event) => {
+    const bubble = event.target.closest('.msg-user .bubble');
+    if (!bubble) return;
+    event.preventDefault();
+    openUserMenu(bubble, bubble.closest('.msg')?.dataset.id, { x: event.clientX, y: event.clientY });
+  });
+  $('#flow').addEventListener('click', (event) => {
+    const bubble = event.target.closest('.msg-user .bubble');
+    if (!bubble || state.selectMode) return;
+    if (userPressSuppress) {
+      userPressSuppress = false;
+      return;
+    }
+    startEdit(bubble.closest('.msg')?.dataset.id);
+  });
+
+  $('#editCancel').addEventListener('click', cancelEdit);
 
   $('#menuBtn').addEventListener('click', toggleSidebar);
   $('#scrim').addEventListener('click', closeDrawer);
@@ -2690,6 +3080,13 @@ function bindUI() {
 
     if (state.selectMode) {
       if (item) toggleSelect(item.dataset.id);
+      return;
+    }
+
+    const more = event.target.closest('[data-more]');
+    if (more) {
+      event.stopPropagation();
+      openConvMenu(more, more.dataset.more);
       return;
     }
 
@@ -2776,11 +3173,12 @@ function bindUI() {
       async (value) => {
         if (!state.current) return;
         if (value === 'rename') {
-          const name = prompt('新的名字', state.current.title || '');
-          if (name === null) return;
-          state.current.title = name.trim() || '新对话';
-          $('#chatTitle').textContent = state.current.title;
-          await persist(state.current);
+          openRenameDialog(state.current.title || '', async (name) => {
+            state.current.title = name || '新对话';
+            titleLocked.add(state.current.id);
+            $('#chatTitle').textContent = state.current.title;
+            await persist(state.current);
+          });
         } else if (value === 'export') {
           downloadJSON(
             { app: 'ForgeVision', exportedAt: Date.now(), conversations: [state.current] },
@@ -2876,7 +3274,8 @@ function bindUI() {
     if (!file) return;
     if (state.pickerMode === 'import') {
       try {
-        const data = JSON.parse(await file.text());
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const data = JSON.parse(decodeBytes(bytes));
         const result = await state.store.importAll(data);
         await refreshList();
         toast(`导入完成，共 ${result.saved ?? ''} 段`);
@@ -2885,13 +3284,16 @@ function bindUI() {
       }
       return;
     }
-    if (file.size > 400 * 1024) {
-      toast('文件太大了，挑 400KB 以内的文本');
+    const read = await readTextFile(file);
+    if (read.error) {
+      toast(read.error);
       return;
     }
-    const text = await file.text();
+    const total = read.text.length;
+    const body = total > ATTACH_MAX_CHARS ? read.text.slice(0, ATTACH_MAX_CHARS) : read.text;
+    const note = total > ATTACH_MAX_CHARS ? `（共 ${total} 字，只带上前面 ${ATTACH_MAX_CHARS} 字）` : '';
     const input = $('#input');
-    input.value += `${input.value ? '\n\n' : ''}[文件：${file.name}]\n\`\`\`\n${text.slice(0, 200000)}\n\`\`\`\n`;
+    input.value += `${input.value ? '\n\n' : ''}[文件：${file.name}]${note}\n\`\`\`\n${body}\n\`\`\`\n`;
     autoGrow();
     input.focus();
   });
@@ -2899,7 +3301,8 @@ function bindUI() {
   $('#attachBtn').addEventListener('click', () => {
     state.pickerMode = 'attach';
     const picker = $('#filePicker');
-    picker.accept = '.txt,.md,.json,.csv,.log,.js,.ts,.py,.html,.css';
+    picker.accept =
+      '.txt,.md,.markdown,.json,.csv,.tsv,.log,.js,.mjs,.ts,.py,.html,.css,.yaml,.yml,.xml,.ini,.conf,.toml,.sh,.ps1,.bat,.java,.cs,.go,.rs,.c,.h,.cpp,.php,.rb,.sql,.svg';
     picker.click();
   });
 
@@ -2949,12 +3352,20 @@ async function unlock() {
   }
 }
 
-async function regenerate() {
+async function regenerate(messageId) {
   const conv = state.current;
   if (!conv || state.sending) return;
-  while (conv.messages.length && conv.messages[conv.messages.length - 1].role === 'assistant') {
-    conv.messages.pop();
+  const messages = Array.isArray(conv.messages) ? conv.messages : [];
+  let index = -1;
+  if (messageId) index = messages.findIndex((m) => m.id === messageId);
+  if (index < 0) {
+    // 没指定就重来最后一条
+    index = messages.length - 1;
+    while (index >= 0 && messages[index].role !== 'assistant') index -= 1;
   }
+  if (index < 0) return;
+  // 从这一条开始全部作废：后面的回答已经失去上下文了
+  conv.messages = messages.slice(0, index);
   renderMessages();
   await persist(conv, false);
   await reply(conv);

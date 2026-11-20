@@ -148,7 +148,13 @@ class LocalStore {
   }
 
   async save(conv) {
-    await idbPut({ ...conv, updatedAt: Date.now() });
+    // 合并而不是整条替换：就算上层传进来的对象缺了字段，也不会把已有内容抹掉
+    const prev = await idbGet(conv.id);
+    const next = { ...(prev || {}), ...conv, updatedAt: Date.now() };
+    if (!Array.isArray(next.messages)) {
+      next.messages = Array.isArray(prev?.messages) ? prev.messages : [];
+    }
+    await idbPut(next);
   }
 
   async remove(id) {

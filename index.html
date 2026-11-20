@@ -92,6 +92,7 @@
       <svg viewBox="0 0 20 20"><path d="M3 6h14M3 10h14M3 14h14" /></svg>
     </button>
     <div class="tb-title" id="chatTitle">新对话</div>
+    <span class="tb-model" id="chatModel"></span>
     <div class="tb-actions">
       <button class="icon-btn" data-action="new-chat" aria-label="新对话">
         <svg viewBox="0 0 20 20"><path d="M10 4v12M4 10h12" /></svg>
@@ -119,6 +120,12 @@
 
   <div class="composer-seat" id="composerSeat">
     <div class="composer" id="composer">
+      <div class="composer-edit" id="editHead" hidden>
+        <span class="ce-title">修改输入</span>
+        <button class="ce-close" id="editCancel" aria-label="取消修改">
+          <svg viewBox="0 0 20 20"><path d="m5 5 10 10M15 5 5 15" /></svg>
+        </button>
+      </div>
       <textarea id="input" rows="1" placeholder="给 A.ForgeV 发送消息…" enterkeyhint="send" autocomplete="off"></textarea>
       <div class="composer-tools">
         <div class="ct-left">
@@ -213,7 +220,7 @@
         <button class="set-item" data-open="update">
           <span class="set-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" /><path d="M12 11v6M12 7.3h.01" /></svg></span>
           <span class="set-label">检查更新</span>
-          <i id="setVersionValue">v0.1.0-rc.1</i>
+          <i id="setVersionValue">v0.1.0-rc.2</i>
           <span class="chev">›</span>
         </button>
         <button class="set-item" id="logoutBtn">
@@ -323,6 +330,18 @@
 </div>
 
 <input type="file" id="filePicker" hidden />
+
+<!-- 重命名对话 -->
+<div class="modal-layer" id="renameLayer" hidden>
+  <div class="modal" role="dialog" aria-modal="true">
+    <h3 class="modal-title">重命名对话</h3>
+    <input class="modal-input" id="renameInput" autocomplete="off" spellcheck="false" />
+    <div class="modal-actions">
+      <button id="renameCancel">取消</button>
+      <button id="renameOk">确认</button>
+    </div>
+  </div>
+</div>
 
 <!-- 老设备兜底：WebView 内核太旧时 ES module 不会执行，会白屏 -->
 <script>
