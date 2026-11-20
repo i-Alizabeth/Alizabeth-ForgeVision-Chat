@@ -5,6 +5,7 @@
 
 import { renderMarkdown, escapeHtml } from './markdown.js';
 import { createServerStore, createLocalStore } from './storage.js';
+import { docxToText } from './docx.js';
 
 const $ = (selector, root = document) => root.querySelector(selector);
 
@@ -182,6 +183,7 @@ const state = {
   filter: '',
   pickerMode: 'attach',
   editing: null,
+  attachments: [],
   menu: null,
   typewriter: null,
   selectMode: false,
@@ -529,7 +531,9 @@ function messageNode(message, streaming = false, last = false) {
   if (message.role === 'user') {
     article.className = 'msg msg-user';
     article.dataset.id = message.id;
-    article.innerHTML = `<div class="bubble">${escapeHtml(message.content).replace(/\n/g, '<br />')}</div>`;
+    article.innerHTML =
+      `<div class="bubble">${escapeHtml(message.content).replace(/\n/g, '<br />')}</div>` +
+      messageFilesHtml(message.files);
     return article;
   }
   const profile = modelProfile(message.model || state.current?.model || state.settings.model);
@@ -598,10 +602,51 @@ function showHero(on) {
 /* 发送与流式接收                                                      */
 /* ================================================================== */
 
+/* 附件 → 真正发给模型的内容：文字拼进正文，图片走多模态块 */
+function messageContent(message) {
+  const files = Array.isArray(message.files) ? message.files : [];
+  const textFiles = files.filter((file) => file.kind === 'text');
+  const images = files.filter((file) => file.kind === 'image');
+
+  let text = String(message.content || '');
+  for (const file of textFiles) {
+    text += `${text ? '\n\n' : ''}[文件：${file.name}]\n\`\`\`\n${file.text}\n\`\`\``;
+  }
+  if (!images.length) return text;
+
+  const blocks = [];
+  if (text.trim()) blocks.push({ type: 'text', text });
+  for (const image of images) blocks.push({ type: 'image', dataUrl: image.dataUrl });
+  return blocks.length ? blocks : text;
+}
+
 function buildPayload(messages) {
   return messages
-    .filter((m) => String(m.content || '').trim())
-    .map((m) => ({ role: m.role, content: m.content }));
+    .map((message) => ({ role: message.role, content: messageContent(message) }))
+    .filter((message) => {
+      if (typeof message.content === 'string') return message.content.trim().length > 0;
+      return Array.isArray(message.content) && message.content.length > 0;
+    });
+}
+
+/* 我们的中立格式 → 各家协议 */
+function toOpenAIContent(content) {
+  if (typeof content === 'string') return content;
+  return content.map((block) =>
+    block.type === 'image'
+      ? { type: 'image_url', image_url: { url: block.dataUrl } }
+      : { type: 'text', text: block.text },
+  );
+}
+
+function toAnthropicContent(content) {
+  if (typeof content === 'string') return content;
+  return content.map((block) => {
+    if (block.type !== 'image') return { type: 'text', text: block.text };
+    const match = /^data:([^;]+);base64,(.*)$/.exec(String(block.dataUrl || ''));
+    if (!match) return { type: 'text', text: '[图片]' };
+    return { type: 'image', source: { type: 'base64', media_type: match[1], data: match[2] } };
+  });
 }
 
 function upstreamModel(modelId) {
@@ -612,7 +657,8 @@ function upstreamModel(modelId) {
 async function sendMessage() {
   const input = $('#input');
   const text = input.value.trim();
-  if (!text || state.sending) return;
+  const files = state.attachments.map((file) => ({ ...file }));
+  if ((!text && !files.length) || state.sending) return;
 
   if (!modelReady(currentModel())) {
     toast('这个模型还没填 API 密钥');
@@ -629,9 +675,12 @@ async function sendMessage() {
   if (!state.current) newChat();
   const conv = state.current;
   const userMessage = { id: uid(), role: 'user', content: text, createdAt: Date.now() };
+  if (files.length) userMessage.files = files;
+  state.attachments = [];
+  renderAttachTray();
   conv.messages.push(userMessage);
   if (!conv.title || conv.title === '新对话') {
-    conv.title = makeTitle(text);
+    conv.title = makeTitle(text || files.map((file) => file.name).join(' '));
     autoTitlePending.add(conv.id); // 回复完再让模型自己起个短名字
     $('#chatTitle').textContent = conv.title;
   }
@@ -983,7 +1032,12 @@ async function streamReply(messages, model, onDelta, signal, onReasoning) {
     headers.Authorization = `Bearer ${rt.apiKey}`;
   }
 
-  const payload = { model: rt.upstream, messages, stream: true, temperature: 1 };
+  const payload = {
+    model: rt.upstream,
+    messages: messages.map((message) => ({ ...message, content: toOpenAIContent(message.content) })),
+    stream: true,
+    temperature: 1,
+  };
   if (isServer) {
     if (rt.apiKey) payload.apiKey = rt.apiKey;
     payload.baseUrl = base;
@@ -1002,7 +1056,10 @@ async function anthropicChat({ messages, rt, base, onDelta, onReasoning, signal 
   const systemParts = messages.filter((m) => m.role === 'system').map((m) => m.content);
   const chatMessages = messages
     .filter((m) => m.role !== 'system')
-    .map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content }));
+    .map((m) => ({
+      role: m.role === 'assistant' ? 'assistant' : 'user',
+      content: toAnthropicContent(m.content),
+    }));
 
   const body = { model: rt.upstream, max_tokens: 8192, messages: chatMessages, stream: true };
   if (systemParts.length) body.system = systemParts.join('\n\n');
@@ -1064,6 +1121,9 @@ function friendlyError(raw) {
   // 这条必须排在 API key 之前：上游说的是「key 没权限」，不是「key 不对」
   if (/permission_error|can't call models|cannot call models|no permission|not authorized|forbidden/i.test(s)) {
     return '密钥能通过认证，但上游说它「没有调用模型的权限」（permission_error）。去平台看这个 key 的权限范围、工作区额度，或者免费模型是不是只对客户端开放';
+  }
+  if (/image|vision|multimodal|multi-modal|image_url|不支持图片|图文/i.test(s)) {
+    return '这个模型不支持读图。换成支持视觉的模型，或者先把图里的内容用文字描述一下';
   }
   if (/supported API model names/i.test(s)) {
     return '上游不认这个模型名。去「设置 → 模型 → 自定义设置」改「上游模型名称」，或点「测试连接」看真实名字';
@@ -2952,6 +3012,137 @@ async function readTextFile(file) {
   return { text };
 }
 
+/* ---------------- 附件：docx / 图片 / 纯文本 ---------------- */
+
+const DOCX_MAX_BYTES = 5 * 1024 * 1024;
+const IMAGE_MAX_BYTES = 6 * 1024 * 1024;
+const ATTACH_CHAR_LIMIT = 40000;
+
+const DOC_ICON =
+  '<svg class="ac-doc" viewBox="0 0 24 24" aria-hidden="true">' +
+  '<path d="M6 2h8l5 5v15H6z" fill="#4d6bfe" stroke="none"/>' +
+  '<path d="M14 2v5h5" fill="#8ea0ff" stroke="none"/>' +
+  '<path d="M9 12h7M9 15.5h7M9 19h4.5" stroke="#fff" stroke-width="1.4"/>' +
+  '</svg>';
+
+function formatSize(bytes) {
+  if (!bytes) return '';
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)}KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
+}
+
+function readDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(reader.error || new Error('读取图片失败'));
+    reader.readAsDataURL(file);
+  });
+}
+
+function pushTextAttachment(name, size, text) {
+  const body =
+    text.length > ATTACH_CHAR_LIMIT
+      ? `${text.slice(0, ATTACH_CHAR_LIMIT)}\n…（全文 ${text.length} 字，后面省略）`
+      : text;
+  state.attachments.push({ id: uid(), kind: 'text', name, size, text: body });
+}
+
+/* 一个文件进来，先认格式，再决定怎么读 */
+async function addAttachment(file) {
+  const name = file.name || 'file';
+  const lower = name.toLowerCase();
+
+  try {
+    if (/^image\//.test(file.type || '') || /\.(png|jpe?g|gif|webp|bmp)$/i.test(lower)) {
+      if (file.size > IMAGE_MAX_BYTES) {
+        toast('图片太大了，挑 6MB 以内的');
+        return;
+      }
+      const dataUrl = await readDataUrl(file);
+      state.attachments.push({
+        id: uid(),
+        kind: 'image',
+        name,
+        size: file.size,
+        mime: file.type || 'image/png',
+        dataUrl,
+      });
+      return;
+    }
+    if (/\.docx$/i.test(lower)) {
+      if (file.size > DOCX_MAX_BYTES) {
+        toast('docx 太大了，挑 5MB 以内的');
+        return;
+      }
+      const text = await docxToText(await file.arrayBuffer());
+      pushTextAttachment(name, file.size, text);
+      return;
+    }
+    if (/\.doc$/i.test(lower)) {
+      toast('老 .doc 读不了，另存为 .docx 再传');
+      return;
+    }
+    if (/\.pdf$/i.test(lower)) {
+      toast('PDF 还读不了，转成 docx 或截图再传');
+      return;
+    }
+    const read = await readTextFile(file);
+    if (read.error) {
+      toast(read.error);
+      return;
+    }
+    pushTextAttachment(name, file.size, read.text);
+  } catch (err) {
+    toast(`读文件失败：${err.message}`);
+  }
+}
+
+function renderAttachTray() {
+  const tray = $('#attachTray');
+  if (!tray) return;
+  const list = state.attachments;
+  tray.hidden = list.length === 0;
+  tray.innerHTML = list
+    .map(
+      (file) =>
+        `<div class="ac">` +
+        (file.kind === 'image'
+          ? `<img class="ac-thumb" src="${file.dataUrl}" alt="" />`
+          : DOC_ICON) +
+        `<div class="ac-meta">` +
+        `<span class="ac-name">${escapeHtml(file.name)}</span>` +
+        `<span class="ac-size">${formatSize(file.size)}</span>` +
+        `</div>` +
+        `<button class="ac-x" data-remove="${file.id}" aria-label="移除附件">` +
+        `<svg viewBox="0 0 16 16"><path d="m4 4 8 8M12 4l-8 8"/></svg>` +
+        `</button>` +
+        `</div>`,
+    )
+    .join('');
+}
+
+/* 气泡里那几个小文件条 */
+function messageFilesHtml(files) {
+  if (!Array.isArray(files) || !files.length) return '';
+  return (
+    `<div class="msg-files">` +
+    files
+      .map(
+        (file) =>
+          `<span class="mf">` +
+          (file.kind === 'image'
+            ? `<img class="mf-thumb" src="${file.dataUrl}" alt="" />`
+            : DOC_ICON) +
+          `<span class="mf-name">${escapeHtml(file.name)}</span>` +
+          `</span>`,
+      )
+      .join('') +
+    `</div>`
+  );
+}
+
 /* ================================================================== */
 /* 事件                                                                */
 /* ================================================================== */
@@ -3284,25 +3475,22 @@ function bindUI() {
       }
       return;
     }
-    const read = await readTextFile(file);
-    if (read.error) {
-      toast(read.error);
-      return;
-    }
-    const total = read.text.length;
-    const body = total > ATTACH_MAX_CHARS ? read.text.slice(0, ATTACH_MAX_CHARS) : read.text;
-    const note = total > ATTACH_MAX_CHARS ? `（共 ${total} 字，只带上前面 ${ATTACH_MAX_CHARS} 字）` : '';
-    const input = $('#input');
-    input.value += `${input.value ? '\n\n' : ''}[文件：${file.name}]${note}\n\`\`\`\n${body}\n\`\`\`\n`;
-    autoGrow();
-    input.focus();
+    await addAttachment(file);
+    renderAttachTray();
+  });
+
+  $('#attachTray').addEventListener('click', (event) => {
+    const button = event.target.closest('[data-remove]');
+    if (!button) return;
+    state.attachments = state.attachments.filter((file) => file.id !== button.dataset.remove);
+    renderAttachTray();
   });
 
   $('#attachBtn').addEventListener('click', () => {
     state.pickerMode = 'attach';
     const picker = $('#filePicker');
     picker.accept =
-      '.txt,.md,.markdown,.json,.csv,.tsv,.log,.js,.mjs,.ts,.py,.html,.css,.yaml,.yml,.xml,.ini,.conf,.toml,.sh,.ps1,.bat,.java,.cs,.go,.rs,.c,.h,.cpp,.php,.rb,.sql,.svg';
+      '.docx,.png,.jpg,.jpeg,.webp,.gif,.bmp,.txt,.md,.markdown,.json,.csv,.tsv,.log,.js,.mjs,.ts,.py,.html,.css,.yaml,.yml,.xml,.ini,.conf,.toml,.sh,.ps1,.bat,.java,.cs,.go,.rs,.c,.h,.cpp,.php,.rb,.sql,.svg';
     picker.click();
   });
 
