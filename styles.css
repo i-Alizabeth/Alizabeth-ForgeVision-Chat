@@ -472,7 +472,8 @@ a { color: var(--blue-ink); }
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  scroll-behavior: smooth;
+  /* 打开历史对话要「一进去就在底端」，不要从头滑下去 */
+  scroll-behavior: auto;
   padding: 0 20px;
   overscroll-behavior: contain;
 }
@@ -2151,6 +2152,125 @@ body[data-theme="dark"] .model-test-out.ok {
 .prov-status.fail {
   color: var(--red);
   background: var(--red-wash);
+}
+
+/* ============================ 内容导航 ============================ */
+
+:root { --toc-red: #d9504e; }
+
+/* 收起状态：桌面右侧那一列短线 */
+.toc-rail {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 6px;
+  z-index: 30;
+  cursor: pointer;
+}
+@media (hover: hover) and (pointer: fine) {
+  .toc-rail.has-items { display: flex; }
+}
+.toc-rail i {
+  display: block;
+  width: 14px;
+  height: 2px;
+  background: var(--line-strong);
+  transition: background 0.15s, width 0.15s;
+}
+.toc-rail i.is-active { background: var(--blue); width: 18px; }
+
+.toc-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 120;
+  background: rgba(17, 20, 24, 0.16);
+}
+.toc-layer[hidden] { display: none; }
+
+.toc-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(240px, 72vw);
+  background: var(--bg);
+  border-left: 1px solid var(--line);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+
+.toc-list {
+  height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* 首尾要能滚到指针上，上下各留半屏（110px 做不到：那样只有中间几条能被对准） */
+  padding: calc(50vh - 22px) 0;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+}
+.toc-list::-webkit-scrollbar { display: none; }
+
+.toc-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 44px;
+  padding: 0 54px 0 28px;
+  color: var(--ink-2);
+  opacity: 1;
+  transition: opacity 0.15s, color 0.15s;
+}
+.toc-item .ti-text {
+  position: relative;
+  z-index: 1;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.toc-item::after {
+  content: "";
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  width: 12px;
+  height: 2px;
+  transform: translateY(-50%);
+  background: var(--line-strong);
+  z-index: 1;
+}
+
+/* 对准的那一行：黑字 + 灰底块（右边离条目线左端 16px，左边离面板 16px） */
+.toc-item.is-active { color: var(--ink); }
+.toc-item.is-active .ti-text { font-size: 14px; font-weight: 600; }
+.toc-item.is-active::before {
+  content: "";
+  position: absolute;
+  left: 16px;
+  right: 42px;
+  top: 3px;
+  bottom: 3px;
+  background: var(--bg-soft);
+}
+
+/* 指针：只有它是红的，24px，右端和条目线右端对齐 */
+.toc-needle {
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  width: 24px;
+  height: 2px;
+  transform: translateY(-50%);
+  background: var(--toc-red);
+  pointer-events: none;
+  z-index: 5;
 }
 
 /* ============================ 重命名弹窗 ============================ */

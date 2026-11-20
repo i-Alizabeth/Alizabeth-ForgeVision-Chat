@@ -180,6 +180,7 @@ const state = {
   openSeq: 0,
   sending: false,
   abort: null,
+  streamPaint: null,
   filter: '',
   pickerMode: 'attach',
   editing: null,
@@ -463,6 +464,7 @@ function newChat(focus = false) {
   renderList();
   closeDrawer();
   syncModelLabels();
+  renderTocRail();
   if (focus) setTimeout(() => $('#input').focus(), 40);
 }
 
@@ -575,6 +577,7 @@ function renderMessages() {
     flow.appendChild(messageNode(message, false, index === lastAi));
   });
   scrollToBottom(true);
+  renderTocRail();
 }
 
 function appendMessage(message, streaming = false) {
@@ -584,8 +587,170 @@ function appendMessage(message, streaming = false) {
   }
   const node = messageNode(message, streaming, message.role === 'assistant');
   $('#flow').appendChild(node);
+  if (message.role === 'user') renderTocRail();
   return node;
 }
+
+/* ================================================================== */
+/* 内容导航（右侧目录）                                                 */
+/* ================================================================== */
+
+function tocLabel(message) {
+  const text = String(message.content || '').replace(/\s+/g, ' ').trim();
+  if (text) return text.length > 26 ? `${text.slice(0, 26)}…` : text;
+  const files = Array.isArray(message.files) ? message.files : [];
+  if (files.length) return `[文件] ${files.map((file) => file.name).join('、')}`;
+  return '（空消息）';
+}
+
+function tocItems() {
+  const messages = Array.isArray(state.current?.messages) ? state.current.messages : [];
+  const users = messages.filter((message) => message.role === 'user' && message.id);
+  return users.map((message, index) => ({
+    id: message.id,
+    turn: `${index + 1}/${users.length}`,
+    text: tocLabel(message),
+  }));
+}
+
+/* 当前视口顶部对应第几条 */
+function currentTocIndex(items) {
+  const scroller = $('#chatScroll');
+  if (!scroller) return 0;
+  const top = scroller.getBoundingClientRect().top + 40;
+  let index = 0;
+  items.forEach((item, i) => {
+    const node = document.querySelector(`.msg[data-id="${item.id}"]`);
+    if (node && node.getBoundingClientRect().top <= top) index = i;
+  });
+  return index;
+}
+
+function renderTocRail() {
+  const rail = $('#tocRail');
+  if (!rail) return;
+  const items = tocItems();
+  rail.classList.toggle('has-items', items.length > 0);
+  rail.innerHTML = items.map((item, index) => `<i data-i="${index}"></i>`).join('');
+  syncTocRail();
+}
+
+function syncTocRail() {
+  const rail = $('#tocRail');
+  if (!rail) return;
+  const items = tocItems();
+  const index = currentTocIndex(items);
+  rail.querySelectorAll('i').forEach((dot, i) => dot.classList.toggle('is-active', i === index));
+}
+
+function scrollChatTo(messageId) {
+  const scroller = $('#chatScroll');
+  const node = document.querySelector(`.msg[data-id="${messageId}"]`);
+  if (!scroller || !node) return;
+  const top =
+    node.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop - 14;
+  scroller.scrollTop = Math.max(0, top);
+}
+
+/* 指针对准哪条：离面板中缝最近的那一项（列表压根不能滚时返回 -1，别乱跳） */
+function tocCenterIndex(list) {
+  if (list.scrollHeight <= list.clientHeight + 4) return -1;
+  const box = list.getBoundingClientRect();
+  const center = box.top + box.height / 2;
+  const nodes = [...list.querySelectorAll('.toc-item')];
+  let best = 0;
+  let bestDistance = Infinity;
+  nodes.forEach((node, index) => {
+    const rect = node.getBoundingClientRect();
+    const distance = Math.abs(rect.top + rect.height / 2 - center);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = index;
+    }
+  });
+  return best;
+}
+
+function paintTocList(index, scrollChat = true) {
+  const list = $('#tocList');
+  if (!list) return;
+  const items = [...list.querySelectorAll('.toc-item')];
+  items.forEach((item, i) => {
+    const distance = Math.abs(i - index);
+    item.classList.toggle('is-active', i === index);
+    // 上下三条保持原色，再往外渐淡，最淡停在中度灰
+    const fade = Math.min(Math.max(distance - 3, 0) / 4, 1);
+    item.style.opacity = String(1 - fade * 0.42);
+    if (i === index) item.style.opacity = '1';
+  });
+  if (scrollChat) {
+    const node = items[index];
+    if (node) scrollChatTo(node.dataset.msg);
+  }
+}
+
+let tocLastIndex = -1;
+
+function openToc() {
+  const items = tocItems();
+  if (!items.length) return;
+  const layer = $('#tocLayer');
+  const list = $('#tocList');
+  tocLastIndex = -1;
+  list.innerHTML = items
+    .map(
+      (item) =>
+        `<div class="toc-item" data-msg="${item.id}">` +
+        `<span class="ti-text">${escapeHtml(item.text)}</span>` +
+        `</div>`,
+    )
+    .join('');
+  layer.hidden = false;
+
+  const index = currentTocIndex(items);
+  setTimeout(() => {
+    const node = list.querySelectorAll('.toc-item')[index];
+    if (node) {
+      const previous = list.style.scrollBehavior;
+      list.style.scrollBehavior = 'auto';
+      list.scrollTop = node.offsetTop - list.clientHeight / 2 + node.offsetHeight / 2;
+      list.style.scrollBehavior = previous;
+    }
+    paintTocList(index, false);
+  }, 0);
+}
+
+/* 松手后让最近的那一行滑到指针上 */
+function snapTocList(list) {
+  const items = [...list.querySelectorAll('.toc-item')];
+  if (!items.length) return;
+  const box = list.getBoundingClientRect();
+  const center = box.top + box.height / 2;
+  let best = 0;
+  let bestDistance = Infinity;
+  items.forEach((node, index) => {
+    const rect = node.getBoundingClientRect();
+    const distance = Math.abs(rect.top + rect.height / 2 - center);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = index;
+    }
+  });
+  const node = items[best];
+  const target = node.offsetTop + node.offsetHeight / 2 - list.clientHeight / 2;
+  if (Math.abs(list.scrollTop - target) > 2) {
+    list.scrollTo({ top: target, behavior: 'smooth' });
+  }
+}
+
+function closeToc() {
+  const layer = $('#tocLayer');
+  if (layer) layer.hidden = true;
+}
+
+/* ================================================================== */
+/* 发送与流式接收                                                      */
+/* ================================================================== */
 
 function showHero(on) {
   const hero = $('#hero');
@@ -827,20 +992,24 @@ async function reply(conv) {
   updateSendState();
 
   let text = '';
-  let raf = 0;
+  let paintTimer = 0;
   let last = 0;
   const paint = () => {
+    if (!body.isConnected) return;
     body.innerHTML = renderMarkdown(text);
     maybeScroll();
   };
+  // 这里不能用 requestAnimationFrame：安卓 WebView 切到后台会把 rAF 停掉，
+  // 回调不执行 → raf 一直挂着 → 之后再也不重绘，看着像"卡住了"，其实数据还在收。
   const schedulePaint = () => {
-    if (raf) return;
-    raf = requestAnimationFrame(() => {
-      raf = 0;
+    if (paintTimer) return;
+    paintTimer = setTimeout(() => {
+      paintTimer = 0;
       last = performance.now();
       paint();
-    });
+    }, 40);
   };
+  state.streamPaint = paint; // 回到前台时用它补画一次
 
   let thinking = false;
   try {
@@ -869,7 +1038,8 @@ async function reply(conv) {
       text = text ? `${text}\n\n> ⚠️ ${message}` : `⚠️ ${message}`;
     }
   } finally {
-    if (raf) cancelAnimationFrame(raf);
+    if (paintTimer) clearTimeout(paintTimer);
+    state.streamPaint = null;
     assistant.content = text;
     state.sending = false;
     state.abort = null;
@@ -3502,12 +3672,109 @@ function bindUI() {
   document.addEventListener('keydown', (event) => {
     if (event.key !== 'Escape') return;
     closeMenu();
-    if (!$('#langSheet').hidden) closeLangSheet();
+    if (!$('#tocLayer').hidden) closeToc();
+    else if (!$('#langSheet').hidden) closeLangSheet();
     else if (!$('#loginPage').hidden) closeLogin();
     else if (!$('#subPage').hidden) closeSub();
     else if (!$('#settingsPage').hidden) closeSettings();
     else closeDrawer();
   });
+
+  // 从别的 App 切回来：把后台收到的内容补画一次（WebView 后台不跑渲染）
+  const repaintIfStreaming = () => {
+    if (document.hidden) return;
+    if (typeof state.streamPaint === 'function') state.streamPaint();
+  };
+  document.addEventListener('visibilitychange', repaintIfStreaming);
+  window.addEventListener('focus', repaintIfStreaming);
+
+  /* ---------------- 内容导航 ---------------- */
+  let railTimer = 0;
+  $('#chatScroll').addEventListener(
+    'scroll',
+    () => {
+      if (railTimer) return;
+      railTimer = setTimeout(() => {
+        railTimer = 0;
+        syncTocRail();
+      }, 180);
+    },
+    { passive: true },
+  );
+
+  $('#tocRail').addEventListener('pointerenter', openToc);
+  $('#tocRail').addEventListener('click', openToc);
+
+  $('#tocLayer').addEventListener('click', (event) => {
+    if (event.target === $('#tocLayer')) closeToc();
+  });
+  $('#tocList').addEventListener('click', (event) => {
+    const item = event.target.closest('.toc-item');
+    if (!item) return;
+    scrollChatTo(item.dataset.msg);
+    closeToc();
+    syncTocRail();
+  });
+
+  let tocScrollTimer = 0;
+  let tocSnapTimer = 0;
+  $('#tocList').addEventListener(
+    'scroll',
+    () => {
+      const list = $('#tocList');
+      // 16ms ≈ 一帧，滚动过程中实时跟手，不等松手
+      if (!tocScrollTimer) {
+        tocScrollTimer = setTimeout(() => {
+          tocScrollTimer = 0;
+          const index = tocCenterIndex(list);
+          if (index < 0 || index === tocLastIndex) return;
+          tocLastIndex = index;
+          paintTocList(index, true);
+          syncTocRail();
+        }, 16);
+      }
+      // 停下 200ms 后吸附到最近的一行
+      clearTimeout(tocSnapTimer);
+      tocSnapTimer = setTimeout(() => {
+        tocSnapTimer = 0;
+        snapTocList(list);
+      }, 200);
+    },
+    { passive: true },
+  );
+
+  // 手机上从右往左滑唤出（最右端外侧那一条留给别的操作）
+  let tocTouch = null;
+  $('#main').addEventListener(
+    'touchstart',
+    (event) => {
+      const touch = event.touches[0];
+      if (!touch) return;
+      tocTouch = {
+        x: touch.clientX,
+        y: touch.clientY,
+        fromEdge: touch.clientX > window.innerWidth - 40,
+      };
+    },
+    { passive: true },
+  );
+  $('#main').addEventListener(
+    'touchmove',
+    (event) => {
+      if (!tocTouch) return;
+      const touch = event.touches[0];
+      if (!touch) return;
+      const dx = touch.clientX - tocTouch.x;
+      const dy = Math.abs(touch.clientY - tocTouch.y);
+      if (!tocTouch.fromEdge && dx < -70 && dy < 50) {
+        tocTouch = null;
+        openToc();
+      }
+    },
+    { passive: true },
+  );
+  $('#main').addEventListener('touchend', () => { tocTouch = null; }, { passive: true });
+  $('#main').addEventListener('touchcancel', () => { tocTouch = null; }, { passive: true });
 
   window.matchMedia?.('(prefers-color-scheme: dark)').addEventListener?.('change', () => {
     if (state.settings.theme === 'auto') applyTheme();
@@ -3576,6 +3843,10 @@ window.AFV = {
     try {
       if (state.menu) {
         closeMenu();
+        return true;
+      }
+      if (!$('#tocLayer').hidden) {
+        closeToc();
         return true;
       }
       if (!$('#langSheet').hidden) {
